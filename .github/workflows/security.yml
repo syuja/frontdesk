@@ -26,9 +26,17 @@ jobs:
 
   dependency-scan:
     name: Dependency Vulnerability Scan
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.8
-    continue-on-error: true  # warn-only — transitive CVEs must not block merges
+    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run OSV Scanner
+        uses: google/osv-scanner-action@v2.3.8
+        continue-on-error: true  # warn-only — transitive CVEs must not block merges
+        with:
+          scan-args: |-
+            -r
+            ./
