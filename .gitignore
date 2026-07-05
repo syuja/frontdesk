@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+.venv/
+*.py[cod]
+
+# Build artifacts
+build/
+dist/
+*.zip
+*.egg-info/
+
+# Logs and scratch outputs
+logs/
+*.log
+response.json
+*.txt
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
