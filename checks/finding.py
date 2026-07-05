@@ -52,9 +52,6 @@ class CheckConfig:
     # are skipped — can_be_sent_now/pending alone overstate actionability.
     review_window_days: int = 14
 
-    # knowledge_hub_hygiene: flag item not updated within this many days
-    kh_stale_days: int = 180
-
     # missing_turnover_task: look ahead this many days for upcoming checkouts
     turnover_lookahead_days: int = 14
 

@@ -348,57 +348,50 @@ def _topic(name: str, items: list[dict]) -> dict:
     return {"name": name, "aggregate_items": items, "updated_at": items[0]["updated_at"] if items else None}
 
 
-def test_kh_stale_item_fires():
-    """Item not updated in > 180d → 1 MEDIUM stale finding."""
-    old_date = (NOW - datetime.timedelta(days=200)).isoformat()
-    kh = _kh([_topic("Check-in", [_item(old_date)])])
-    audit = _empty_audit(kh={"aaaa-0001": kh})
-    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
-    stale = [f for f in findings if "Stale" in f.title]
-    assert len(stale) == 1
-    assert "200d" in stale[0].title
-    assert stale[0].severity == Severity.MEDIUM
-
-
-def test_kh_fresh_item_no_finding():
-    """Item updated recently → no stale finding."""
-    fresh_date = (NOW - datetime.timedelta(days=10)).isoformat()
-    kh = _kh([_topic("Check-in", [_item(fresh_date)])])
-    audit = _empty_audit(kh={"aaaa-0001": kh})
-    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
-    stale = [f for f in findings if "Stale" in f.title]
-    assert stale == []
-
-
 def test_kh_duplicate_topic_fires():
     """Same topic name twice → 1 MEDIUM duplicate finding."""
+    d = (NOW - datetime.timedelta(days=10)).isoformat()
     kh = _kh([
-        _topic("Parking", [_item((NOW - datetime.timedelta(days=10)).isoformat())]),
-        _topic("Parking", [_item((NOW - datetime.timedelta(days=20)).isoformat())]),
-        _topic("Check-in", [_item((NOW - datetime.timedelta(days=5)).isoformat())]),
+        _topic("Parking", [_item(d)]),
+        _topic("Parking", [_item(d)]),
+        _topic("Check-in", [_item(d)]),
     ])
     audit = _empty_audit(kh={"aaaa-0001": kh})
     findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
     dupes = [f for f in findings if "Duplicate" in f.title]
     assert len(dupes) == 1
-    assert "Parking" in dupes[0].title
+    assert "parking" in dupes[0].title.lower()
+    assert "(2×)" in dupes[0].title
+    assert dupes[0].severity == Severity.MEDIUM
+
+
+def test_kh_duplicate_topic_case_insensitive_fires():
+    """Topic names differing only by case/whitespace count as duplicates."""
+    d = (NOW - datetime.timedelta(days=10)).isoformat()
+    kh = _kh([
+        _topic("Parking", [_item(d)]),
+        _topic("parking ", [_item(d)]),  # different case + trailing space
+    ])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
+    dupes = [f for f in findings if "Duplicate" in f.title]
+    assert len(dupes) == 1
     assert "(2×)" in dupes[0].title
 
 
 def test_kh_no_duplicates_no_finding():
     """Unique topic names → no duplicate finding."""
+    d = (NOW - datetime.timedelta(days=10)).isoformat()
     kh = _kh([
-        _topic("Parking", [_item((NOW - datetime.timedelta(days=10)).isoformat())]),
-        _topic("Check-in", [_item((NOW - datetime.timedelta(days=5)).isoformat())]),
+        _topic("Parking", [_item(d)]),
+        _topic("Check-in", [_item(d)]),
     ])
     audit = _empty_audit(kh={"aaaa-0001": kh})
-    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
-    dupes = [f for f in findings if "Duplicate" in f.title]
-    assert dupes == []
+    assert check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG) == []
 
 
-def test_kh_stale_and_duplicate_both_fire():
-    """Old item + duplicate topic → both findings present."""
+def test_kh_duplicate_fires_stale_not_triggered():
+    """Old items + duplicate topic → duplicate finding only; no stale finding."""
     old = (NOW - datetime.timedelta(days=190)).isoformat()
     fresh = (NOW - datetime.timedelta(days=5)).isoformat()
     kh = _kh([
@@ -408,28 +401,62 @@ def test_kh_stale_and_duplicate_both_fire():
     audit = _empty_audit(kh={"aaaa-0001": kh})
     findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
     assert any("Duplicate" in f.title for f in findings)
-    assert any("Stale" in f.title for f in findings)
+    assert not any("Stale" in f.title for f in findings)
+
+
+def test_kh_old_unique_content_no_finding():
+    """261-day-old but unique content → no finding (age no longer triggers)."""
+    old = (NOW - datetime.timedelta(days=261)).isoformat()
+    kh = _kh([_topic("Address", [_item(old, "461 15th St NE, Washington DC 20002")])])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    assert check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_kh_duplicate_items_within_topic_fires():
+    """Two items in the same topic with identical content → 1 finding."""
+    d = (NOW - datetime.timedelta(days=5)).isoformat()
+    kh = _kh([_topic("House Rules", [
+        _item(d, "No smoking inside the property."),
+        _item(d, "No smoking inside the property."),  # exact duplicate
+    ])])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
+    item_dupes = [f for f in findings if "identical content" in f.title]
+    assert len(item_dupes) == 1
+    assert "House Rules" in item_dupes[0].title
+    assert "(2×" in item_dupes[0].title
+
+
+def test_kh_duplicate_items_case_whitespace_normalized():
+    """Items differing only by case/whitespace count as identical."""
+    d = (NOW - datetime.timedelta(days=5)).isoformat()
+    kh = _kh([_topic("WiFi", [
+        _item(d, "Password: guest123"),
+        _item(d, "  Password:  guest123  "),  # extra whitespace
+        _item(d, "PASSWORD: GUEST123"),       # different case
+    ])])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
+    item_dupes = [f for f in findings if "identical content" in f.title]
+    assert len(item_dupes) == 1
+    assert "(3×" in item_dupes[0].title
+
+
+def test_kh_distinct_items_no_duplicate_finding():
+    """Distinct item content within a topic → no finding."""
+    d = (NOW - datetime.timedelta(days=5)).isoformat()
+    kh = _kh([_topic("House Rules", [
+        _item(d, "No smoking inside the property."),
+        _item(d, "No parties or events allowed."),
+    ])])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    assert check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG) == []
 
 
 def test_kh_empty_hub_no_findings():
     """No topics → no findings."""
     audit = _empty_audit(kh={"aaaa-0001": _kh([])})
     assert check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG) == []
-
-
-def test_kh_custom_stale_threshold():
-    """Threshold respects config.kh_stale_days."""
-    slightly_old = (NOW - datetime.timedelta(days=100)).isoformat()
-    kh = _kh([_topic("WiFi", [_item(slightly_old)])])
-    audit = _empty_audit(kh={"aaaa-0001": kh})
-
-    # Default threshold=180 → not stale
-    findings_default = check_knowledge_hub_hygiene(audit, now=NOW, config=CheckConfig(kh_stale_days=180))
-    assert not any("Stale" in f.title for f in findings_default)
-
-    # Tight threshold=90 → stale
-    findings_tight = check_knowledge_hub_hygiene(audit, now=NOW, config=CheckConfig(kh_stale_days=90))
-    assert any("Stale" in f.title for f in findings_tight)
 
 
 # ── check_missing_turnover_task ───────────────────────────────────────────────
