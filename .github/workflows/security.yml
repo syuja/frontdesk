@@ -34,9 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run OSV Scanner
-        uses: google/osv-scanner-action@v2.3.8
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         continue-on-error: true  # warn-only — transitive CVEs must not block merges
         with:
           scan-args: |-
-            -r
+            --recursive
             ./
