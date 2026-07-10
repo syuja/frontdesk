@@ -32,9 +32,10 @@ class Finding:
     severity: Severity
     property_uuid: str
     property_name: str
-    title: str            # one-line human summary
-    detail: str           # specifics: ids, dates, ages
-    entity_id: str | None = None  # reservation/review/inquiry/topic uuid
+    title: str            # one-line human summary; includes guest first name when known
+    detail: str           # specifics: ids, dates, ages; UUIDs for traceability
+    entity_id: str | None = None   # reservation/review/inquiry/topic uuid
+    guest_name: str | None = None  # first name only; None → render as "unknown guest"
 
 
 @dataclasses.dataclass
@@ -45,12 +46,20 @@ class CheckConfig:
     # is no longer a recoverable booking; surfacing it trains the reader to ignore
     # the digest. 336h = 14 days.
     inquiry_max_age_hours: int = 336
+    # unanswered_inquiry: gap >= this escalates from HIGH to CRITICAL — a booking
+    # that has been cold for 3+ days is unlikely to convert without immediate action.
+    inquiry_escalate_hours: int = 72
 
     # actionable_review: Airbnb's post-checkout window for submitting a guest review.
     # If expires_at is present, that date is used directly. If absent, the deadline is
     # estimated as checkout + review_window_days. Reviews past their computed deadline
     # are skipped — can_be_sent_now/pending alone overstate actionability.
     review_window_days: int = 14
+
+    # smartlock_battery: flag if battery.percentage falls below this backstop when
+    # the device-configured threshold (battery.threshold) is absent or unreliable.
+    # Primary trigger is battery.percentage < battery.threshold; this is the fallback.
+    battery_floor_pct: int = 20
 
     # turnover_gap: how far ahead to scan for upcoming check-ins
     turnover_lookahead_days: int = 7
@@ -77,3 +86,6 @@ class AuditData:
     reservations: list[dict]
     kh: dict[str, dict]         # property_uuid → knowledge hub data object
     client: Any                 # HospitableClient; None-safe in pure-data tests
+    # Deduped unique smartlocks across all property listings; runner populates this.
+    # Keyed by device id — one physical lock may appear under multiple listings.
+    smartlocks: list[dict] = dataclasses.field(default_factory=list)

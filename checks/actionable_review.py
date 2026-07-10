@@ -91,6 +91,9 @@ def check_actionable_review(
             log.debug("Review %s: no expires_at and no checkout date — skipping", review_uuid[:8])
             continue
 
+        guest_name = (review.get("guest") or {}).get("first_name") or None
+        title_guest = guest_name or "unknown guest"
+
         parts = [f"review={review_uuid[:8]}"]
         if checkout:
             parts.append(f"checkout={checkout} ({days_since}d ago)")
@@ -98,12 +101,13 @@ def check_actionable_review(
 
         findings.append(Finding(
             check="actionable_review",
-            severity=Severity.HIGH,
+            severity=Severity.MEDIUM,
             property_uuid=prop_uuid,
             property_name=pname,
-            title="Actionable review — pending and window is open now",
+            title=f"Actionable review — {title_guest}, window open now",
             detail=" | ".join(parts),
             entity_id=review_uuid,
+            guest_name=guest_name,
         ))
 
     return findings

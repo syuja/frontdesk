@@ -252,6 +252,47 @@ def get_knowledge_hub(
     return body.get("data", {})
 
 
+def get_property_devices(
+    client: HospitableClient,
+    property_uuid: str,
+    *,
+    device_type: str | None = None,
+) -> list[dict]:
+    """
+    Devices for one property via GET /properties/{uuid}/devices. Read-only.
+
+    Returns an empty list on 403 (devices:read scope or smart-devices entitlement
+    missing) so the audit continues gracefully. The caller should deduplicate by
+    device id across properties — confirmed live: one physical lock appears under
+    all 3 listing UUIDs.
+
+    IMPORTANT: only GET is issued. Lock/unlock POST endpoints exist — do not touch them.
+
+    device_type: optional pre-filter; None returns all device types.
+    """
+    import requests as _requests
+    try:
+        body = client.get(f"/properties/{property_uuid}/devices")
+    except _requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 403:
+            log.warning(
+                "GET /properties/%s/devices → 403 (devices:read scope or "
+                "smart-devices entitlement missing) — skipping",
+                property_uuid[:8],
+            )
+            return []
+        raise
+
+    devices = body.get("data") or []
+    if isinstance(devices, dict):
+        devices = [devices]
+
+    if device_type is not None:
+        devices = [d for d in devices if d.get("device_type") == device_type]
+
+    return list(devices)
+
+
 def get_tasks(
     client: HospitableClient,
     property_uuids: list[str],

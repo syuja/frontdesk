@@ -70,7 +70,13 @@ def _gap_severity(gap: int, config: CheckConfig) -> Severity:
 
 
 def _gap_label(gap: int) -> str:
-    return "same-day" if gap == 0 else f"{gap}d gap"
+    if gap == 0:
+        return "same-day"
+    if gap == 1:
+        return "next-day"
+    if gap <= 3:
+        return "2-3 days"
+    return "4+ days"
 
 
 def check_turnover_gap(
@@ -90,7 +96,8 @@ def check_turnover_gap(
 
     # TODO: scope to shared-space UUIDs when a non-shared property is added
     # Parse all reservations into structured tuples; skip only known-dead statuses
-    events: list[tuple[datetime.date, datetime.date, str, str, str]] = []
+    # Tuple: (cin, cout, res_uuid, prop_uuid, pname, guest_name)
+    events: list[tuple[datetime.date, datetime.date, str, str, str, str | None]] = []
     for res in audit.reservations:
         status = hdata.res_status(res) or res.get("status")
         if status in _SKIP_STATUSES:
@@ -102,27 +109,29 @@ def check_turnover_gap(
         prop_uuid = extract_uuid(res, "property_uuid", "property_id", "property", "properties")
         pname = lookup_prop_name(prop_uuid, prop_index)
         res_uuid = res.get("uuid") or ""
-        events.append((cin, cout, res_uuid, prop_uuid, pname))
+        guest_name = (res.get("guest") or {}).get("first_name") or None
+        events.append((cin, cout, res_uuid, prop_uuid, pname, guest_name))
 
     # All checkouts across the combined calendar, sorted ascending for binary-search-style scan
-    all_checkouts: list[tuple[datetime.date, str, str]] = sorted(
-        [(cout, pname, uuid) for cin, cout, uuid, _puuid, pname in events],
+    # Tuple: (cout, pname, uuid, guest_name)
+    all_checkouts: list[tuple[datetime.date, str, str, str | None]] = sorted(
+        [(cout, pname, uuid, gname) for cin, cout, uuid, _puuid, pname, gname in events],
         key=lambda x: x[0],
     )
 
     findings: list[Finding] = []
 
-    for cin, _cout, uuid_in, prop_uuid_in, pname_in in events:
+    for cin, _cout, uuid_in, prop_uuid_in, pname_in, arriving_guest in events:
         if not (today <= cin <= window_end):
             continue
 
         # Walk backwards through checkouts to find the latest one on or before this check-in
-        prior: tuple[datetime.date, str, str] | None = None
-        for chk_date, chk_pname, chk_uuid in reversed(all_checkouts):
+        prior: tuple[datetime.date, str, str, str | None] | None = None
+        for chk_date, chk_pname, chk_uuid, chk_gname in reversed(all_checkouts):
             if chk_uuid == uuid_in:
                 continue  # skip this reservation's own checkout
             if chk_date <= cin:
-                prior = (chk_date, chk_pname, chk_uuid)
+                prior = (chk_date, chk_pname, chk_uuid, chk_gname)
                 break
 
         if prior is None:
@@ -132,24 +141,27 @@ def check_turnover_gap(
             )
             continue
 
-        prior_date, prior_pname, _prior_uuid = prior
+        prior_date, prior_pname, _prior_uuid, prior_guest = prior
         gap = (cin - prior_date).days
         severity = _gap_severity(gap, config)
         label = _gap_label(gap)
+
+        departing = prior_guest or "unknown guest"
+        arriving = arriving_guest or "unknown guest"
 
         findings.append(Finding(
             check="turnover_gap",
             severity=severity,
             property_uuid=prop_uuid_in,
             property_name=pname_in,
-            title=f"Turnover gap {gap}d — {label}",
+            title=f"Turnover gap — {label}",
             detail=(
-                f"OUT: {prior_pname} {prior_date}"
-                f" → IN: {pname_in} {cin}"
-                f" | gap={gap}d ({label})"
-                f" | arriving={uuid_in[:8]}"
+                f"OUT: {prior_pname} {prior_date} ({departing})"
+                f" → IN: {pname_in} {cin} ({arriving})"
+                f" | gap={gap}d"
             ),
             entity_id=uuid_in,
+            guest_name=arriving_guest,
         ))
 
     return findings

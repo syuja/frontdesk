@@ -76,7 +76,7 @@ def check_knowledge_hub_hygiene(
             variants_str = " / ".join(f'"{v}"' for v in variants)
             findings.append(Finding(
                 check="knowledge_hub_hygiene",
-                severity=Severity.MEDIUM,
+                severity=Severity.LOW,
                 property_uuid=prop_uuid,
                 property_name=pname,
                 title=f'Duplicate KH topic "{norm_name}" ({count}×)',
@@ -107,7 +107,7 @@ def check_knowledge_hub_hygiene(
                 snippet = norm_content[:60]
                 findings.append(Finding(
                     check="knowledge_hub_hygiene",
-                    severity=Severity.MEDIUM,
+                    severity=Severity.LOW,
                     property_uuid=prop_uuid,
                     property_name=pname,
                     title=f'Duplicate KH items in "{tname}" ({len(dupes)}× identical content)',

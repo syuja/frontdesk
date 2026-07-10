@@ -18,6 +18,7 @@ from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
 from checks.turnover_gap import check_turnover_gap
+from checks.smartlock_battery import check_smartlock_battery
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ def _empty_audit(**overrides) -> AuditData:
         reservations=[],
         kh={},
         client=None,
+        smartlocks=[],
     )
     base.update(overrides)
     return AuditData(**base)
@@ -245,13 +247,13 @@ def _review(uuid: str, status: str, can_send: bool, **extra) -> dict:
 
 
 def test_actionable_review_pending_can_send_fires():
-    """pending + can_be_sent_now=True + future expires_at → 1 finding."""
+    """pending + can_be_sent_now=True + future expires_at → 1 MEDIUM finding (A3 re-map)."""
     audit = _empty_audit(reviews=[_review("rev-0001", "pending", True, expires_at="2025-07-15")])
     findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
     f = findings[0]
     assert f.check == "actionable_review"
-    assert f.severity == Severity.HIGH
+    assert f.severity == Severity.MEDIUM
     assert f.entity_id == "rev-0001"
 
 
@@ -361,7 +363,7 @@ def test_kh_duplicate_topic_fires():
     assert len(dupes) == 1
     assert "parking" in dupes[0].title.lower()
     assert "(2×)" in dupes[0].title
-    assert dupes[0].severity == Severity.MEDIUM
+    assert dupes[0].severity == Severity.LOW  # A3 re-map: KH hygiene → LOW
 
 
 def test_kh_duplicate_topic_case_insensitive_fires():
@@ -492,7 +494,7 @@ def test_turnover_gap_same_day_critical():
     assert f.check == "turnover_gap"
     assert f.severity == Severity.CRITICAL
     assert f.entity_id == "res-in"
-    assert "same-day" in f.detail
+    assert "same-day" in f.title  # A4: tightness label is in title, not detail
 
 
 def test_turnover_gap_one_day_high():
@@ -588,6 +590,269 @@ def test_turnover_gap_not_accepted_ignored():
     assert check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG) == []
 
 
+# ── check_smartlock_battery ───────────────────────────────────────────────────
+
+def _lock(
+    dev_id: str = "d4a4673b",
+    name: str = "Front",
+    pct: int | None = 54,
+    threshold: int | None = 30,
+    status: str = "good",
+    online: bool = True,
+    issues: list | None = None,
+    state_online: bool | None = None,
+) -> dict:
+    """Synthetic smartlock device dict matching live API shape."""
+    battery: dict = {"status": status}
+    if pct is not None:
+        battery["percentage"] = pct
+    if threshold is not None:
+        battery["threshold"] = threshold
+    state: dict = {"battery": battery, "locked": True}
+    if state_online is not None:
+        state["online"] = state_online
+    return {
+        "id": dev_id, "name": name,
+        "device_type": "smartlock",
+        "online": online,
+        "issues": issues if issues is not None else [],
+        "state": state,
+        "_prop_uuid": "aaaa-0001",
+    }
+
+
+def test_smartlock_healthy_no_finding():
+    """54%, threshold 30, status good, online, no issues → no finding."""
+    audit = _empty_audit(smartlocks=[_lock(pct=54, threshold=30, status="good")])
+    assert check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_smartlock_49pct_status_low_no_finding():
+    """Current live state: 49%, threshold 30, status 'low', online, empty issues → NO finding.
+    Proves we do not flag on battery.status alone — status 'low' is not a trigger."""
+    audit = _empty_audit(smartlocks=[_lock(pct=49, threshold=30, status="low")])
+    assert check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_smartlock_below_threshold_critical():
+    """29% < threshold 30% → CRITICAL (primary tripwire a)."""
+    audit = _empty_audit(smartlocks=[_lock(pct=29, threshold=30, status="low")])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+    assert "configured threshold" in findings[0].detail
+
+
+def test_smartlock_floor_backstop_no_threshold():
+    """19% with threshold missing → FLAGGED via floor backstop (tripwire b, default 20%)."""
+    audit = _empty_audit(smartlocks=[_lock(pct=19, threshold=None, status="low")])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "floor" in findings[0].detail
+
+
+def test_smartlock_issues_entry_critical():
+    """issues[] has low-battery entry, 50%, status 'good' → FLAGGED (tripwire c)."""
+    issues = [{"type": "low_battery", "description": "Battery is low"}]
+    audit = _empty_audit(smartlocks=[_lock(pct=50, threshold=30, status="good", issues=issues)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "issues[]" in findings[0].detail
+
+
+def test_smartlock_battery_object_missing_critical():
+    """battery object missing from state → FLAGGED (tripwire d — uncertainty)."""
+    lock = {**_lock(), "state": {}}  # state present but no 'battery' key
+    audit = _empty_audit(smartlocks=[lock])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "battery data missing" in findings[0].detail
+
+
+def test_smartlock_percentage_none_critical():
+    """battery.percentage None → FLAGGED (tripwire d — uncertainty)."""
+    audit = _empty_audit(smartlocks=[_lock(pct=None, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "percentage missing" in findings[0].detail
+
+
+def test_smartlock_device_offline_critical():
+    """device.online False → FLAGGED (tripwire e — cannot confirm guest entry)."""
+    audit = _empty_audit(smartlocks=[_lock(online=False)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "offline" in findings[0].detail
+
+
+def test_smartlock_state_online_false_critical():
+    """state.online False → FLAGGED (tripwire e)."""
+    audit = _empty_audit(smartlocks=[_lock(state_online=False)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "offline" in findings[0].detail
+
+
+def test_smartlock_dedup_same_id_yields_one():
+    """Same device id from 3 listings → _dedup_smartlocks produces exactly one device."""
+    from checks.runner import _dedup_smartlocks
+    readings = [_lock("dev-x"), _lock("dev-x"), _lock("dev-x")]
+    assert len(_dedup_smartlocks(readings)) == 1
+
+
+def test_smartlock_dedup_offline_wins():
+    """Two readings of same lock — one online, one offline → merged device is offline."""
+    from checks.runner import _dedup_smartlocks
+    online_r  = _lock("dev-y", pct=49, online=True)
+    offline_r = _lock("dev-y", pct=49, online=False)
+    result = _dedup_smartlocks([online_r, offline_r])
+    assert len(result) == 1
+    assert result[0].get("online") is False
+    # And the check flags the merged device
+    audit = _empty_audit(smartlocks=result)
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "offline" in findings[0].detail
+
+
+# ── A5 tests: guest names, escalation, severity re-map, label text ────────────
+
+def test_unanswered_inquiry_guest_name_in_title(monkeypatch):
+    """Guest first name surfaced in title when present."""
+    thread = {
+        "messages": [_msg("guest", 5.0)],
+        "guest": {"first_name": "Maria", "last_name": "S"},
+    }
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-name-a")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "Maria" in findings[0].title
+    assert findings[0].guest_name == "Maria"
+
+
+def test_unanswered_inquiry_unknown_guest_fallback(monkeypatch):
+    """No guest object → title reads 'unknown guest'; no crash."""
+    thread = {"messages": [_msg("guest", 5.0)]}  # no 'guest' key
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-name-b")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "unknown guest" in findings[0].title
+    assert findings[0].guest_name is None
+
+
+def test_unanswered_inquiry_40h_is_high(monkeypatch):
+    """40h gap < 72h escalation threshold → HIGH."""
+    thread = {"messages": [_msg("guest", 40.0)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-esc-a")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+
+
+def test_unanswered_inquiry_100h_is_critical(monkeypatch):
+    """100h gap >= 72h escalation threshold → CRITICAL."""
+    thread = {"messages": [_msg("guest", 100.0)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-esc-b")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+
+
+def test_unanswered_inquiry_ages_out_detail(monkeypatch):
+    """Detail line shows gap and time until age-out."""
+    thread = {"messages": [_msg("guest", 100.0)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-esc-c")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert "ages out in" in findings[0].detail
+
+
+def test_actionable_review_severity_is_medium():
+    """A3 re-map: actionable_review → MEDIUM (not HIGH)."""
+    audit = _empty_audit(reviews=[_review("rev-sev", "pending", True, expires_at="2025-07-15")])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+
+def test_actionable_review_guest_name_in_title():
+    """Review with guest object → first name in title."""
+    review = _review("rev-gn", "pending", True, expires_at="2025-07-15",
+                     guest={"first_name": "James", "last_name": "T"})
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "James" in findings[0].title
+    assert findings[0].guest_name == "James"
+
+
+def test_kh_severity_is_low():
+    """A3 re-map: knowledge_hub_hygiene → LOW (not MEDIUM)."""
+    d = (NOW - datetime.timedelta(days=10)).isoformat()
+    kh = _kh([_topic("Parking", [_item(d)]), _topic("Parking", [_item(d)])])
+    audit = _empty_audit(kh={"aaaa-0001": kh})
+    findings = check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert all(f.severity == Severity.LOW for f in findings)
+
+
+def test_turnover_gap_title_tightness_label():
+    """A4: title uses tightness label; detail has numeric gap once; no duplication."""
+    cout = str(TODAY + datetime.timedelta(days=1))
+    cin  = str(TODAY + datetime.timedelta(days=6))  # 5-day gap → LOW / "4+ days"
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    f = findings[0]
+    assert "4+ days" in f.title
+    assert "5d gap" not in f.title   # old repeated pattern must not appear
+    assert "gap=5d" in f.detail
+
+
+def test_turnover_gap_guest_names_in_detail():
+    """Departing and arriving guest names appear in detail."""
+    cout = str(TODAY + datetime.timedelta(days=2))
+    cin  = str(TODAY + datetime.timedelta(days=3))
+    res_out = {**_res("res-out", cout, checkin=str(TODAY)), "guest": {"first_name": "Maria"}}
+    res_in  = {**_res("res-in",  cin,  checkin=cin),        "guest": {"first_name": "James"}}
+    audit = _empty_audit(reservations=[res_out, res_in])
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "Maria" in findings[0].detail
+    assert "James" in findings[0].detail
+
+
+def test_turnover_gap_unknown_guest_fallback():
+    """No guest object → detail shows 'unknown guest'; no crash."""
+    cout = str(TODAY + datetime.timedelta(days=2))
+    cin  = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "unknown guest" in findings[0].detail
+
+
 # ── Severity ordering ─────────────────────────────────────────────────────────
 
 def test_severity_ordering():
@@ -617,7 +882,7 @@ def test_run_all_sorted_high_to_low(monkeypatch):
         client=MagicMock(),
     )
     findings = run_all(audit, now=NOW, config=DEFAULT_CONFIG)
-    assert len(findings) >= 2, "Expected at least CRITICAL (turnover) and HIGH (review)"
+    assert len(findings) >= 2, "Expected at least CRITICAL (turnover) and MEDIUM (review)"
     severities = [f.severity for f in findings]
     assert severities == sorted(severities, reverse=True), "Findings not sorted high→low"
     assert findings[0].severity == Severity.CRITICAL

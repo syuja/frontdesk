@@ -126,19 +126,29 @@ def check_unanswered_inquiry(
             continue
 
         gap_h = gap.total_seconds() / 3600
+        ages_out_h = config.inquiry_max_age_hours - gap_h
+        severity = (
+            Severity.CRITICAL
+            if gap_h >= config.inquiry_escalate_hours
+            else Severity.HIGH
+        )
+
+        guest_name = (thread.get("guest") or {}).get("first_name") or None
+        title_guest = guest_name or "unknown guest"
+
         findings.append(Finding(
             check="unanswered_inquiry",
-            severity=Severity.HIGH,
+            severity=severity,
             property_uuid=prop_uuid,
             property_name=pname,
-            title=f"Unanswered inquiry — guest last replied {gap_h:.1f}h ago",
+            title=f"Unanswered inquiry — {title_guest} last replied {gap_h:.1f}h ago",
             detail=(
                 f"inquiry={inq_uuid[:8]} "
                 f"last_message_at={ts_str} "
-                f"gap={gap_h:.1f}h "
-                f"window=[{config.inquiry_stale_hours}h,{config.inquiry_max_age_hours}h]"
+                f"gap={gap_h:.1f}h | ages out in {ages_out_h:.0f}h"
             ),
             entity_id=inq_uuid,
+            guest_name=guest_name,
         ))
 
     return findings

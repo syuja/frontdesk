@@ -15,8 +15,63 @@ from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
 from checks.turnover_gap import check_turnover_gap
+from checks.smartlock_battery import check_smartlock_battery
 
 log = logging.getLogger(__name__)
+
+
+def _dedup_smartlocks(raw: list[dict]) -> list[dict]:
+    """
+    Deduplicate smartlocks by device id, keeping the worst reading per device.
+
+    Confirmed necessary: one physical lock appears under all 3 property listings.
+
+    Worst = lowest battery.percentage (None counts as worst-case); UNION of
+    issues[] across all readings; offline if any listing reports offline.
+    """
+    groups: dict[str, list[dict]] = {}
+    for dev in raw:
+        dev_id = dev.get("id") or ""
+        if not dev_id:
+            continue
+        groups.setdefault(dev_id, []).append(dev)
+
+    result: list[dict] = []
+    for readings in groups.values():
+        if len(readings) == 1:
+            result.append(dict(readings[0]))
+            continue
+
+        def _pct(r: dict) -> float:
+            p = ((r.get("state") or {}).get("battery") or {}).get("percentage")
+            return float(p) if p is not None else float("-inf")
+
+        worst = min(readings, key=_pct)
+        merged = dict(worst)
+        merged["issues"] = list(worst.get("issues") or [])
+
+        seen_issues = {str(i) for i in merged["issues"]}
+        for r in readings:
+            if r is worst:
+                continue
+            for issue in (r.get("issues") or []):
+                s = str(issue)
+                if s not in seen_issues:
+                    merged["issues"].append(issue)
+                    seen_issues.add(s)
+
+        if any(
+            r.get("online") is False or (r.get("state") or {}).get("online") is False
+            for r in readings
+        ):
+            merged["online"] = False
+            state = dict(merged.get("state") or {})
+            state["online"] = False
+            merged["state"] = state
+
+        result.append(merged)
+
+    return result
 
 
 def build_audit_data(
@@ -53,6 +108,18 @@ def build_audit_data(
     for puuid in prop_uuids:
         kh[puuid] = hdata.get_knowledge_hub(client, puuid)
 
+    log.info("Fetching smartlock devices…")
+    raw_locks: list[dict] = []
+    for prop in props:
+        for dev in hdata.get_property_devices(client, prop["uuid"]):
+            if dev.get("device_type") == "smartlock":
+                raw_locks.append({**dev, "_prop_uuid": prop["uuid"]})
+    smartlocks = _dedup_smartlocks(raw_locks)
+    log.info(
+        "  %d unique smartlock(s) after dedup (%d raw record(s))",
+        len(smartlocks), len(raw_locks),
+    )
+
     return AuditData(
         props=props,
         inquiries=inquiries,
@@ -60,6 +127,7 @@ def build_audit_data(
         reservations=reservations,
         kh=kh,
         client=client,
+        smartlocks=smartlocks,
     )
 
 
@@ -74,6 +142,7 @@ def run_all(
     then property name.
     """
     findings: list[Finding] = []
+    findings.extend(check_smartlock_battery(audit, now=now, config=config))
     findings.extend(check_unanswered_inquiry(audit, now=now, config=config))
     findings.extend(check_actionable_review(audit, now=now, config=config))
     findings.extend(check_knowledge_hub_hygiene(audit, now=now, config=config))
