@@ -14,7 +14,7 @@ from checks.finding import AuditData, CheckConfig, Finding
 from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
-from checks.missing_turnover_task import check_missing_turnover_task
+from checks.turnover_gap import check_turnover_gap
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def build_audit_data(
     Pull all data needed for one audit run.
 
     history_days: how far back to pull reservations (for review checks)
-    lookahead_days: how far forward to pull reservations and tasks
+    lookahead_days: how far forward to pull reservations
     """
     today = datetime.date.today()
     start = today - datetime.timedelta(days=history_days)
@@ -48,9 +48,6 @@ def build_audit_data(
     log.info("Fetching guest reviews…")
     reviews = hdata.get_guest_reviews(client)
 
-    log.info("Fetching tasks (%s → %s)…", today, end)
-    tasks = hdata.get_tasks(client, prop_uuids, today, end)
-
     log.info("Fetching knowledge hub per property…")
     kh: dict[str, dict] = {}
     for puuid in prop_uuids:
@@ -61,7 +58,6 @@ def build_audit_data(
         inquiries=inquiries,
         reviews=reviews,
         reservations=reservations,
-        tasks=tasks,
         kh=kh,
         client=client,
     )
@@ -74,12 +70,12 @@ def run_all(
     config: CheckConfig,
 ) -> list[Finding]:
     """
-    Run all 4 checks and return findings sorted by severity (high→low),
+    Run all checks and return findings sorted by severity (high→low),
     then property name.
     """
     findings: list[Finding] = []
     findings.extend(check_unanswered_inquiry(audit, now=now, config=config))
     findings.extend(check_actionable_review(audit, now=now, config=config))
     findings.extend(check_knowledge_hub_hygiene(audit, now=now, config=config))
-    findings.extend(check_missing_turnover_task(audit, now=now, config=config))
+    findings.extend(check_turnover_gap(audit, now=now, config=config))
     return sorted(findings, key=lambda f: (-f.severity, f.property_name))

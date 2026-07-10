@@ -40,10 +40,9 @@ def _run_audit() -> None:
     log.info("Starting audit run  now=%s", now.isoformat())
     audit = build_audit_data(client)
     log.info(
-        "Data fetched — props=%d  inquiries=%d  reviews=%d  "
-        "reservations=%d  tasks=%d",
+        "Data fetched — props=%d  inquiries=%d  reviews=%d  reservations=%d",
         len(audit.props), len(audit.inquiries), len(audit.reviews),
-        len(audit.reservations), len(audit.tasks),
+        len(audit.reservations),
     )
 
     findings = run_all(audit, now=now, config=config)

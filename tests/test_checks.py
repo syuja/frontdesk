@@ -17,7 +17,7 @@ from checks.finding import AuditData, CheckConfig, Finding, Severity
 from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
-from checks.missing_turnover_task import check_missing_turnover_task
+from checks.turnover_gap import check_turnover_gap
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,6 @@ def _empty_audit(**overrides) -> AuditData:
         inquiries=[],
         reviews=[],
         reservations=[],
-        tasks=[],
         kh={},
         client=None,
     )
@@ -459,94 +458,134 @@ def test_kh_empty_hub_no_findings():
     assert check_knowledge_hub_hygiene(audit, now=NOW, config=DEFAULT_CONFIG) == []
 
 
-# ── check_missing_turnover_task ───────────────────────────────────────────────
+# ── check_turnover_gap ────────────────────────────────────────────────────────
 
-def _res(uuid: str, checkout: str, status: str = "confirmed", prop_uuid: str = "aaaa-0001") -> dict:
-    return {
+def _res(
+    uuid: str,
+    checkout: str,
+    status: str = "confirmed",
+    prop_uuid: str = "aaaa-0001",
+    checkin: str | None = None,
+) -> dict:
+    d: dict = {
         "uuid": uuid, "id": uuid,
         "status": status,
         "check_out": checkout,
         "property_uuid": prop_uuid,
     }
+    if checkin is not None:
+        d["check_in"] = checkin
+    return d
 
 
-def _task(prop_uuid: str, start_date: str) -> dict:
-    return {"property_uuid": prop_uuid, "start_date": start_date, "uuid": "task-x"}
-
-
-def test_turnover_no_task_fires():
-    """Upcoming checkout with no matching task → 1 LOW finding."""
-    checkout = str(TODAY + datetime.timedelta(days=3))
-    audit = _empty_audit(
-        reservations=[_res("res-0001", checkout)],
-        tasks=[],
-    )
-    findings = check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG)
+def test_turnover_gap_same_day_critical():
+    """Prior checkout and next check-in on same day → CRITICAL."""
+    out_date = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-out", out_date, checkin=str(TODAY)),           # departing
+        _res("res-in",  out_date, checkin=out_date),             # arriving same day
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
     f = findings[0]
-    assert f.check == "missing_turnover_task"
-    assert f.severity == Severity.LOW
-    assert f.entity_id == "res-0001"
+    assert f.check == "turnover_gap"
+    assert f.severity == Severity.CRITICAL
+    assert f.entity_id == "res-in"
+    assert "same-day" in f.detail
 
 
-def test_turnover_matching_task_no_finding():
-    """Task on the checkout date → no finding."""
-    checkout = str(TODAY + datetime.timedelta(days=3))
-    audit = _empty_audit(
-        reservations=[_res("res-0002", checkout)],
-        tasks=[_task("aaaa-0001", checkout)],
-    )
-    assert check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG) == []
-
-
-def test_turnover_task_within_window_no_finding():
-    """Task 1 day before checkout still counts (±1 day window)."""
-    checkout = str(TODAY + datetime.timedelta(days=5))
-    task_date = str(TODAY + datetime.timedelta(days=4))  # 1 day before
-    audit = _empty_audit(
-        reservations=[_res("res-0003", checkout)],
-        tasks=[_task("aaaa-0001", task_date)],
-    )
-    assert check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG) == []
-
-
-def test_turnover_outside_lookahead_no_finding():
-    """Checkout beyond lookahead_days → not flagged."""
-    checkout = str(TODAY + datetime.timedelta(days=20))  # beyond default 14d
-    audit = _empty_audit(reservations=[_res("res-0004", checkout)], tasks=[])
-    assert check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG) == []
-
-
-def test_turnover_cancelled_reservation_skipped():
-    """Cancelled reservation → not flagged even if no task."""
-    checkout = str(TODAY + datetime.timedelta(days=2))
-    audit = _empty_audit(
-        reservations=[_res("res-0005", checkout, status="cancelled")],
-        tasks=[],
-    )
-    assert check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG) == []
-
-
-def test_turnover_wrong_property_task_not_matched():
-    """Task exists but for a different property → still flagged."""
-    checkout = str(TODAY + datetime.timedelta(days=3))
-    audit = _empty_audit(
-        reservations=[_res("res-0006", checkout, prop_uuid="aaaa-0001")],
-        tasks=[_task("bbbb-0002", checkout)],  # different property
-    )
-    findings = check_missing_turnover_task(audit, now=NOW, config=DEFAULT_CONFIG)
+def test_turnover_gap_one_day_high():
+    """1-day gap → HIGH."""
+    cout = str(TODAY + datetime.timedelta(days=2))
+    cin  = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
 
 
-def test_turnover_custom_lookahead():
-    """Respects config.turnover_lookahead_days."""
-    checkout = str(TODAY + datetime.timedelta(days=10))
-    audit = _empty_audit(reservations=[_res("res-0007", checkout)], tasks=[])
+def test_turnover_gap_three_days_medium():
+    """3-day gap → MEDIUM."""
+    cout = str(TODAY + datetime.timedelta(days=2))
+    cin  = str(TODAY + datetime.timedelta(days=5))
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
 
-    # Default 14d → flagged
-    assert len(check_missing_turnover_task(audit, now=NOW, config=CheckConfig())) == 1
-    # Short 7d window → not flagged
-    assert check_missing_turnover_task(audit, now=NOW, config=CheckConfig(turnover_lookahead_days=7)) == []
+
+def test_turnover_gap_five_days_low():
+    """5-day gap → LOW."""
+    cout = str(TODAY + datetime.timedelta(days=1))
+    cin  = str(TODAY + datetime.timedelta(days=6))
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.LOW
+
+
+def test_turnover_gap_cross_room_same_day_critical():
+    """Checkout on PROP_A, check-in on PROP_B, same day → CRITICAL (combined calendar)."""
+    same_day = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-ensuite-out", same_day, checkin=str(TODAY), prop_uuid="aaaa-0001"),
+        _res("res-queen-in",   same_day, checkin=same_day,   prop_uuid="bbbb-0002"),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    findings = check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == Severity.CRITICAL
+    assert f.property_uuid == "bbbb-0002"   # arriving guest's property
+    assert "aaaa-0001" not in f.detail or "bbbb-0002" in f.detail  # both rooms in detail
+
+
+def test_turnover_gap_beyond_lookahead_no_finding():
+    """Check-in beyond the lookahead window → not surfaced."""
+    cout = str(TODAY + datetime.timedelta(days=2))
+    cin  = str(TODAY + datetime.timedelta(days=20))  # beyond default 7d
+    reservations = [
+        _res("res-out", cout, checkin=str(TODAY)),
+        _res("res-in",  cin,  checkin=cin),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    assert check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_turnover_gap_cancelled_ignored_in_prior_checkout():
+    """Cancelled reservation is excluded from combined calendar — no valid prior → skip."""
+    same_day = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-cancel", same_day, status="cancelled", checkin=str(TODAY)),  # excluded
+        _res("res-in",     same_day, checkin=same_day),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    # Only prior is cancelled → no valid prior → check-in skipped
+    assert check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_turnover_gap_not_accepted_ignored():
+    """not_accepted reservation is excluded via deny-list — no valid prior → skip."""
+    same_day = str(TODAY + datetime.timedelta(days=3))
+    reservations = [
+        _res("res-not-accepted", same_day, status="not_accepted", checkin=str(TODAY)),
+        _res("res-in",           same_day, checkin=same_day),
+    ]
+    audit = _empty_audit(reservations=reservations)
+    assert check_turnover_gap(audit, now=NOW, config=DEFAULT_CONFIG) == []
 
 
 # ── Severity ordering ─────────────────────────────────────────────────────────
@@ -564,20 +603,21 @@ def test_run_all_sorted_high_to_low(monkeypatch):
     monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: {"messages": []})
 
     from checks.runner import run_all
-    from checks.finding import AuditData
 
-    old_kh_date = (NOW - datetime.timedelta(days=200)).isoformat()
-    checkout = str(TODAY + datetime.timedelta(days=3))
-
+    same_day = str(TODAY + datetime.timedelta(days=3))
     audit = AuditData(
         props=[PROP_A],
         inquiries=[],
-        reviews=[_review("rev-x", "pending", True)],
-        reservations=[_res("res-x", checkout)],
-        tasks=[],
-        kh={"aaaa-0001": _kh([_topic("WiFi", [_item(old_kh_date)])])},
+        reviews=[_review("rev-x", "pending", True, expires_at="2025-07-15")],
+        reservations=[
+            _res("res-out", same_day, checkin=str(TODAY)),   # prior checkout
+            _res("res-in",  same_day, checkin=same_day),     # same-day → CRITICAL
+        ],
+        kh={},
         client=MagicMock(),
     )
     findings = run_all(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) >= 2, "Expected at least CRITICAL (turnover) and HIGH (review)"
     severities = [f.severity for f in findings]
     assert severities == sorted(severities, reverse=True), "Findings not sorted high→low"
+    assert findings[0].severity == Severity.CRITICAL

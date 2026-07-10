@@ -16,8 +16,8 @@ This auditor never writes. It never modifies Hospitable data, messages guests, e
 
 - [ ] **Unanswered inquiry** — conversation where the last message has `sender_type = guest` (no host reply)
 - [ ] **Actionable review** — review where `can_be_sent_now` is true and checkout date math confirms the window is open
-- [ ] **Stale / duplicate Knowledge Hub entry** — entry where `updated_at` age exceeds threshold, or topic appears more than once across the hub
-- [ ] **Missing turnover task** — reservation window with no task returned from `/tasks`
+- [ ] **Duplicate Knowledge Hub entry** — topic name appearing more than once (case-insensitive), or duplicate item content within a topic
+- [ ] **Turnover gap** — combined shared-space calendar; gap between a checkout and the next check-in; severity scaled by tightness (CRITICAL=same-day, HIGH=1d, MEDIUM=2–3d, LOW=4+d); 7-day lookahead
 
 ---
 

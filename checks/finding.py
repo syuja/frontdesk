@@ -52,8 +52,14 @@ class CheckConfig:
     # are skipped — can_be_sent_now/pending alone overstate actionability.
     review_window_days: int = 14
 
-    # missing_turnover_task: look ahead this many days for upcoming checkouts
-    turnover_lookahead_days: int = 14
+    # turnover_gap: how far ahead to scan for upcoming check-ins
+    turnover_lookahead_days: int = 7
+    # turnover_gap: severity thresholds — gap in whole days between the prior checkout
+    # and the next check-in across the combined property calendar.
+    # gap <= critical_days → CRITICAL; <= high_days → HIGH; <= medium_days → MEDIUM; else LOW
+    turnover_gap_critical_days: int = 0  # same-day: zero cleaning buffer
+    turnover_gap_high_days: int = 1      # one day
+    turnover_gap_medium_days: int = 3    # two or three days
 
 
 @dataclasses.dataclass
@@ -69,6 +75,5 @@ class AuditData:
     inquiries: list[dict]       # summary list; thread fetched per-item in check 1
     reviews: list[dict]
     reservations: list[dict]
-    tasks: list[dict]
     kh: dict[str, dict]         # property_uuid → knowledge hub data object
     client: Any                 # HospitableClient; None-safe in pure-data tests
