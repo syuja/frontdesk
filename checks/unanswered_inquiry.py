@@ -47,6 +47,16 @@ _CLOSED_STATUSES = frozenset({
     "closed",
 })
 
+# Sentinel: messages missing created_at sort to this so they can never be
+# mistakenly treated as the newest message in the thread.
+_EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+
+
+def _msg_ts(msg: dict) -> datetime.datetime:
+    """Parse a message's timestamp for ordering. Missing → epoch (defensively oldest)."""
+    raw = msg.get("created_at") or msg.get("sent_at") or ""
+    return parse_dt(raw) or _EPOCH
+
 
 def check_unanswered_inquiry(
     audit: AuditData,
@@ -99,13 +109,16 @@ def check_unanswered_inquiry(
         if not messages:
             continue
 
-        last_msg = messages[-1]
+        # Pick the newest message by timestamp — never trust API delivery order.
+        # The Hospitable API returns messages newest-first, but an index assumption
+        # ([-1] or [0]) breaks silently if that ever changes. max() is explicit.
+        newest_msg = max(messages, key=_msg_ts)
         # msg_sender() normalization is applied in get_inquiry_thread()
-        sender = last_msg.get("sender")
+        sender = newest_msg.get("sender")
         if sender != "guest":
             continue
 
-        ts_str = last_msg.get("created_at") or last_msg.get("sent_at") or ""
+        ts_str = newest_msg.get("created_at") or newest_msg.get("sent_at") or ""
         last_at = parse_dt(ts_str)
         if last_at is None:
             log.debug("Inquiry %s: no parseable timestamp on last message, skipping", inq_uuid[:8])

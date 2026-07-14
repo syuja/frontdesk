@@ -1,12 +1,16 @@
 """
 Entry point for the Hospitable auditor.
 
-Default: pull all data, run all checks, print findings grouped by severity.
---smoke : run the data-pull smoke test only (no check logic).
+Default: pull all data, run all checks, print human digest to console.
+--verbose : debug format with entity= UUIDs and raw timestamps.
+--notify  : also deliver the human digest to Telegram.
+--smoke   : data-pull smoke test only (no check logic).
 
 Run:
-    uv run -m hospitable           # full audit
-    uv run -m hospitable --smoke   # data layer smoke test
+    uv run -m hospitable             # human digest to console
+    uv run -m hospitable --verbose   # debug format
+    uv run -m hospitable --notify    # human digest + Telegram delivery
+    uv run -m hospitable --smoke     # data layer smoke test
 """
 
 import datetime
@@ -32,10 +36,13 @@ def _run_audit() -> None:
     from hospitable.client import HospitableClient
     from checks.runner import build_audit_data, run_all
     from checks.finding import CheckConfig, Severity
+    from hospitable.formatters import format_digest, format_verbose
 
     client = HospitableClient()
     config = CheckConfig()
     now = datetime.datetime.now(datetime.timezone.utc)
+    verbose = "--verbose" in sys.argv
+    notify = "--notify" in sys.argv
 
     log.info("Starting audit run  now=%s", now.isoformat())
     audit = build_audit_data(client)
@@ -47,33 +54,26 @@ def _run_audit() -> None:
 
     findings = run_all(audit, now=now, config=config)
 
-    if not findings:
-        log.info("No findings — account looks clean.")
-        return
-
-    # Group by severity, print high → low
-    by_severity: dict[Severity, list] = {}
-    for f in findings:
-        by_severity.setdefault(f.severity, []).append(f)
-
     print()
-    for sev in sorted(by_severity, reverse=True):
-        group = by_severity[sev]
-        bar = "═" * 60
-        print(bar)
-        print(f"  {sev}  ({len(group)} finding{'s' if len(group) != 1 else ''})")
-        print(bar)
-        for f in group:
-            print(f"[{sev}] {f.check}  —  {f.property_name}")
-            print(f"  {f.title}")
-            print(f"  {f.detail}")
-            if f.entity_id:
-                print(f"  entity={f.entity_id[:8]}")
-            print()
+    if verbose:
+        print(format_verbose(findings))
+    else:
+        print(format_digest(findings, now))
 
     total = len(findings)
     high = sum(1 for f in findings if f.severity >= Severity.HIGH)
     log.info("Audit complete — %d finding(s) total, %d HIGH or above", total, high)
+
+    if notify:
+        from hospitable.telegram import send_digest
+        try:
+            send_digest(format_digest(findings, now))
+        except Exception as exc:
+            log.error(
+                "Telegram delivery failed (%s) — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",
+                type(exc).__name__,
+            )
+            sys.exit(1)
 
 
 # ── Smoke test mode (--smoke) ─────────────────────────────────────────────────

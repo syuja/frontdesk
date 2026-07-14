@@ -221,6 +221,57 @@ def test_unanswered_inquiry_closed_status_skipped(monkeypatch):
         assert result == [], f"Expected no finding for status={closed_status!r}, got {result}"
 
 
+def test_unanswered_inquiry_newest_first_delivery_order(monkeypatch):
+    """
+    Real API delivers messages NEWEST-FIRST. When the newest message is from the
+    host, the check must NOT flag — even though messages[-1] is a guest message.
+    This is the ordering bug that caused false positives for Christina/Ramy/Blaze.
+    """
+    # [0] = newest (host reply, 2h ago), [1] = oldest (guest inquiry, 10h ago)
+    # This matches real Hospitable API delivery order.
+    thread = {"messages": [_msg("host", 2), _msg("guest", 10)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-order-a")], client=MagicMock())
+    assert check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG) == [], (
+        "Host replied (newest msg); should not flag even though guest message is last in list"
+    )
+
+
+def test_unanswered_inquiry_newest_first_guest_still_flags(monkeypatch):
+    """
+    Newest-first delivery where guest message IS the newest → still flags correctly.
+    """
+    # [0] = newest (guest, 5h ago), [1] = older (host, 20h ago)
+    thread = {"messages": [_msg("guest", 5), _msg("host", 20)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-order-b")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "5.0h" in findings[0].title  # gap measured from newest (guest, 5h ago)
+
+
+def test_unanswered_inquiry_gap_from_newest_timestamp(monkeypatch):
+    """
+    Gap in title/detail is measured from the NEWEST message, not the oldest.
+    Before the fix, gap was measured from messages[-1] which was the oldest
+    (guest inquiry), producing a falsely large elapsed time.
+    """
+    # Newest = guest 6h ago, older = host 48h ago — gap should be 6h, not 48h
+    thread = {"messages": [_msg("host", 48), _msg("guest", 6)]}
+    import hospitable.data as hdata
+    monkeypatch.setattr(hdata, "get_inquiry_thread", lambda _c, _u: thread)
+
+    audit = _empty_audit(inquiries=[_inq("inq-gap-ts")], client=MagicMock())
+    findings = check_unanswered_inquiry(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "6.0h" in findings[0].title
+    assert "48" not in findings[0].title
+
+
 def test_unanswered_inquiry_custom_max_age(monkeypatch):
     """inquiry_max_age_hours is respected from CheckConfig."""
     thread = {"messages": [_msg("guest", 50.0)]}  # 50h ago
