@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 import re
 
-from checks.finding import Finding, Severity
+from checks.finding import CheckConfig as _CheckConfig, Finding, Severity
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +45,19 @@ _CHECK_RANK: dict[str, int] = {
 
 # Wording for the "inquiry will age out" tail — single source so it's easy to tweak.
 _DROPS_OFF_TMPL = "drops off in {t} if unanswered"
+
+# Battery status icons
+_BATT_OK   = "🔋"   # percentage >= threshold
+_BATT_LOW  = "🪫"   # percentage < threshold, missing, or unreadable
+_BATT_WARN = "⚠️"  # lock offline
+
+# Location label for the shared smartlock — one physical device spans all 3 listings,
+# so a per-room label would be arbitrary. Both the status line and CRITICAL alert use this.
+_LOCK_LOCATION = "shared front door"
+
+# Floor threshold for the no-threshold fallback path in the status line.
+# Sourced from CheckConfig so the value stays in sync with the check's own floor.
+_BATTERY_FLOOR_PCT: int = _CheckConfig().battery_floor_pct
 
 # Telegram per-message hard limit in UTF-16 code units.
 # Python str length undercounts emoji / em-dashes (each counts as 2 UTF-16 units).
@@ -100,6 +113,39 @@ def _extract_float(pattern: str, text: str) -> float | None:
     """Return the first captured float from text, or None if the pattern doesn't match."""
     m = re.search(pattern, text)
     return float(m.group(1)) if m else None
+
+
+def _fmt_battery_status_line(lock: dict) -> str:
+    """Informational one-liner for a single deduped smartlock in the human digest.
+
+    Mirrors the check's uncertainty handling but renders as a status fact, not a finding.
+    """
+    state = lock.get("state") or {}
+
+    if lock.get("online") is False or state.get("online") is False:
+        return f"{_BATT_WARN} {_LOCK_LOCATION} — offline"
+
+    battery = state.get("battery")
+    if battery is None:
+        return f"{_BATT_LOW} {_LOCK_LOCATION} — battery unknown"
+
+    pct_raw = battery.get("percentage")
+    if pct_raw is None:
+        return f"{_BATT_LOW} {_LOCK_LOCATION} — battery unknown"
+
+    try:
+        pct = float(pct_raw)
+        threshold_raw = battery.get("threshold")
+        threshold = float(threshold_raw) if threshold_raw is not None else None
+    except (TypeError, ValueError):
+        return f"{_BATT_LOW} {_LOCK_LOCATION} — battery unknown"
+
+    pct_str = f"{pct:.0f}%"
+    if threshold is not None:
+        icon = _BATT_OK if pct >= threshold else _BATT_LOW
+        return f"{icon} {_LOCK_LOCATION} — {pct_str} (alert at {threshold:.0f}%)"
+    icon = _BATT_LOW if pct < _BATTERY_FLOOR_PCT else _BATT_OK
+    return f"{icon} {_LOCK_LOCATION} — {pct_str}"
 
 
 def _fmt_date(iso_date: str) -> str:
@@ -166,15 +212,20 @@ def _render_human(f: Finding) -> str:
         return f"• {arriving} arriving {arr_date} — {departing} left {dep_date} ({prop}), {gap_d}-day gap"
 
     if f.check == "smartlock_battery":
-        lock_m = re.search(r"— (.+)$", f.title)
-        lock = lock_m.group(1) if lock_m else "lock"
-        tw_m = re.search(r"tripwire: (.+)$", f.detail)
-        if tw_m:
-            tw_raw = tw_m.group(1)
-            tw = tw_raw.split(";")[0].strip()
-        else:
-            tw = "check detail"
-        return f'• Smartlock "{lock}" — {tw} ({prop})'
+        if "OFFLINE" in f.detail:
+            return f"• {_BATT_WARN} {_LOCK_LOCATION} — offline, cannot confirm guest access"
+        pct_m = re.search(r"battery=([\d.]+)%", f.detail)
+        thr_m = re.search(r"threshold=([\d.]+)%", f.detail)
+        if pct_m:
+            pct = int(float(pct_m.group(1)))
+            if thr_m:
+                thr = int(float(thr_m.group(1)))
+                return (
+                    f"• {_BATT_LOW} {_LOCK_LOCATION} at {pct}% — "
+                    f"replace batteries soon (below your {thr}% alert)"
+                )
+            return f"• {_BATT_LOW} {_LOCK_LOCATION} at {pct}% — replace batteries soon"
+        return f"• {_BATT_LOW} {_LOCK_LOCATION} — battery unreadable, replace or check connection"
 
     # Fallback: use the title as-is
     return f"• {f.title} ({prop})"
@@ -186,16 +237,25 @@ def format_digest(
     findings: list[Finding],
     now: datetime.datetime,
     account_name: str = "Villa del Encanto",
+    smartlocks: list[dict] | None = None,
 ) -> str:
-    """Human-readable digest: compact header + emoji-grouped finding bullets.
+    """Human-readable digest: compact header + battery status + emoji-grouped finding bullets.
 
+    smartlocks: deduped lock records from AuditData; one status line per lock is inserted
+    directly under the header. Omit or pass [] to suppress the status block.
     Zero findings → all-clear message so the reader knows the run completed.
     Suitable for Telegram and default console output.
     """
     date_str = now.strftime("%Y-%m-%d")
+    batt_lines = [_fmt_battery_status_line(lk) for lk in (smartlocks or [])]
 
     if not findings:
-        return f"\U0001f3e0 {account_name} — {date_str}\n\n✅ All clear — no issues found"
+        parts = [f"\U0001f3e0 {account_name} — {date_str}"]
+        if batt_lines:
+            parts.extend(batt_lines)
+        parts.append("")
+        parts.append("✅ All clear — no issues found")
+        return "\n".join(parts)
 
     counts: dict[Severity, int] = {}
     for f in findings:
@@ -217,6 +277,7 @@ def format_digest(
         by_sev.setdefault(f.severity, []).append(f)
 
     lines: list[str] = [header]
+    lines.extend(batt_lines)
     for sev in _SEV_ORDER:
         group = by_sev.get(sev)
         if not group:

@@ -78,7 +78,7 @@ def _run_audit() -> None:
     if verbose:
         print(format_verbose(findings))
     else:
-        print(format_digest(findings, now))
+        print(format_digest(findings, now, smartlocks=audit.smartlocks))
 
     total = len(findings)
     high = sum(1 for f in findings if f.severity >= Severity.HIGH)
@@ -87,7 +87,7 @@ def _run_audit() -> None:
     if notify:
         from hospitable.telegram import send_digest
         try:
-            send_digest(format_digest(findings, now))
+            send_digest(format_digest(findings, now, smartlocks=audit.smartlocks))
         except Exception as exc:
             log.error(
                 "Telegram delivery failed (%s) — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",

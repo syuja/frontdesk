@@ -14,9 +14,13 @@ import pytest
 from checks.finding import Finding, Severity
 from hospitable.formatters import (
     TELEGRAM_MAX_UTF16,
+    _BATT_LOW,
+    _BATT_OK,
+    _BATT_WARN,
     _DROPS_OFF_TMPL,
     _h_to_human,
     _h_to_human_precise,
+    _LOCK_LOCATION,
     _short_prop,
     _utf16_len,
     format_digest,
@@ -265,6 +269,141 @@ def test_secondary_sort_turnover_before_kh():
     assert digest.index("arriving") < digest.index("KH duplicate"), (
         "turnover_gap bullet should appear before knowledge_hub_hygiene bullet"
     )
+
+
+# ── Battery status line ───────────────────────────────────────────────────────
+
+def _lock(
+    pct: float | None = 47,
+    threshold: float | None = 30,
+    online: bool = True,
+    state_online: bool = True,
+    battery_present: bool = True,
+    pct_present: bool = True,
+    name: str = "Front",
+) -> dict:
+    battery: dict | None = None
+    if battery_present:
+        battery = {
+            "percentage": pct if pct_present else None,
+            "threshold": threshold,
+            "status": "ok",
+        }
+    return {
+        "name": name,
+        "online": online,
+        "issues": [],
+        "state": {"online": state_online, "battery": battery},
+    }
+
+
+def _battery_finding(pct: int = 15, thr: int = 30) -> Finding:
+    return Finding(
+        check="smartlock_battery",
+        severity=Severity.CRITICAL,
+        property_uuid="aaaa-0001",
+        property_name="Villa del Encanto | Ensuite Room",
+        title="Smartlock battery critical — Front",
+        detail=(
+            f"lock=Front id=abc123ef battery={pct}% "
+            f"(threshold={thr}%, status='low') online | "
+            f"tripwire: percentage {pct}% < configured threshold {thr}%"
+        ),
+        entity_id="lock-abc123",
+    )
+
+
+def test_battery_status_line_healthy():
+    """Healthy lock shows 🔋, percentage, and alert threshold."""
+    digest = format_digest([], NOW, smartlocks=[_lock(pct=47, threshold=30)])
+    assert _BATT_OK in digest
+    assert "47%" in digest
+    assert "alert at 30%" in digest
+
+
+def test_battery_status_line_low():
+    """Low lock shows 🪫."""
+    digest = format_digest([], NOW, smartlocks=[_lock(pct=15, threshold=30)])
+    assert _BATT_LOW in digest
+    assert "15%" in digest
+
+
+def test_battery_status_line_missing_pct():
+    """Missing percentage → 'battery unknown' with 🪫."""
+    digest = format_digest([], NOW, smartlocks=[_lock(pct_present=False)])
+    assert "battery unknown" in digest
+    assert _BATT_LOW in digest
+
+
+def test_battery_status_line_offline():
+    """Offline lock → 'offline' with ⚠️."""
+    digest = format_digest([], NOW, smartlocks=[_lock(online=False)])
+    assert "offline" in digest
+    assert _BATT_WARN in digest
+
+
+def test_battery_status_line_no_locks():
+    """Zero smartlocks → no battery icon emitted."""
+    digest = format_digest([], NOW, smartlocks=[])
+    assert _BATT_OK not in digest
+    assert _BATT_LOW not in digest
+    assert _BATT_WARN not in digest
+
+
+def test_battery_status_line_not_in_count():
+    """Battery status line is informational — findings count in header is unchanged."""
+    f = _f()
+    digest = format_digest([f], NOW, smartlocks=[_lock()])
+    header = digest.splitlines()[0]
+    assert "1 finding" in header
+
+
+def test_smartlock_battery_human_reword():
+    """CRITICAL battery alert uses plain English — no raw tripwire debug text."""
+    f = _battery_finding(pct=15, thr=30)
+    digest = format_digest([f], NOW)
+    bullet = next(ln for ln in digest.splitlines() if ln.startswith("•"))
+    assert "15%" in bullet
+    assert "30%" in bullet
+    assert "replace batteries" in bullet
+    assert "percentage 15% < configured threshold" not in bullet
+
+
+def test_verbose_battery_detail_unchanged():
+    """format_verbose retains raw tripwire text — regression guard."""
+    f = _battery_finding(pct=15, thr=30)
+    verbose = format_verbose([f])
+    assert "tripwire:" in verbose
+    assert "percentage 15% < configured threshold 30%" in verbose
+
+
+def test_battery_status_line_pct_equals_threshold():
+    """pct exactly equal to threshold → 🔋 (healthy side of the >= boundary, not low)."""
+    digest = format_digest([], NOW, smartlocks=[_lock(pct=30, threshold=30)])
+    assert _BATT_OK in digest
+    assert _BATT_LOW not in digest
+
+
+def test_battery_status_line_no_battery_object():
+    """Battery object entirely absent (not just pct None) → 'battery unknown', no crash."""
+    digest = format_digest([], NOW, smartlocks=[_lock(battery_present=False)])
+    assert "battery unknown" in digest
+    assert _BATT_LOW in digest
+
+
+def test_smartlock_battery_shared_front_door_label():
+    """Status line and CRITICAL alert both use _LOCK_LOCATION, never a room name."""
+    lk = _lock()
+    f = _battery_finding(pct=15, thr=30)
+    digest = format_digest([f], NOW, smartlocks=[lk])
+    lines = digest.splitlines()
+    # Status line is directly under the header (line index 1)
+    assert _LOCK_LOCATION in lines[1]
+    # CRITICAL bullet also carries the label
+    bullet = next(ln for ln in lines if ln.startswith("•"))
+    assert _LOCK_LOCATION in bullet
+    # No arbitrary room label should appear in either
+    assert "Ensuite" not in digest
 
 
 # ── Verbose formatter ─────────────────────────────────────────────────────────
