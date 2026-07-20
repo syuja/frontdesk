@@ -2,9 +2,12 @@
 Entry point for the Hospitable auditor.
 
 Default: pull all data, run all checks, print human digest to console.
---verbose : debug format with entity= UUIDs and raw timestamps.
---notify  : also deliver the human digest to Telegram.
---smoke   : data-pull smoke test only (no check logic).
+--verbose          : debug format with entity= UUIDs and raw timestamps.
+--notify           : also deliver the human digest to Telegram.
+--smoke            : data-pull smoke test only (no check logic).
+--fake-low-battery : DEV ONLY — replace real lock reading with percentage=15 to
+                     exercise the CRITICAL smartlock path end-to-end. Never use in
+                     production; the Lambda path has no such flag.
 
 Run:
     uv run -m hospitable             # human digest to console
@@ -51,6 +54,23 @@ def _run_audit() -> None:
         len(audit.props), len(audit.inquiries), len(audit.reviews),
         len(audit.reservations),
     )
+
+    if "--fake-low-battery" in sys.argv:
+        if not audit.smartlocks:
+            log.error("--fake-low-battery: no smartlocks found to substitute — aborting")
+            sys.exit(1)
+        _real = audit.smartlocks[0]
+        audit.smartlocks = [{
+            **_real,
+            "online": True,
+            "issues": [],
+            "state": {
+                **(_real.get("state") or {}),
+                "online": True,
+                "battery": {"percentage": 15, "threshold": 30, "status": "low"},
+            },
+        }]
+        log.warning("⚠️  FAKE LOW BATTERY INJECTED — TEST MODE, not a real reading")
 
     findings = run_all(audit, now=now, config=config)
 
