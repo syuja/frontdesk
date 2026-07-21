@@ -37,7 +37,7 @@ log = logging.getLogger("hospitable")
 
 def _run_audit() -> None:
     from hospitable.client import HospitableClient
-    from checks.runner import build_audit_data, run_all
+    from checks.runner import build_audit_data, run_all, _build_lock_statuses
     from checks.finding import CheckConfig, Severity
     from hospitable.formatters import format_digest, format_verbose
 
@@ -70,15 +70,18 @@ def _run_audit() -> None:
                 "battery": {"percentage": 15, "threshold": 30, "status": "low"},
             },
         }]
+        audit.lock_statuses = _build_lock_statuses(audit.smartlocks)
         log.warning("⚠️  FAKE LOW BATTERY INJECTED — TEST MODE, not a real reading")
 
     findings = run_all(audit, now=now, config=config)
+
+    digest = format_digest(findings, now, lock_statuses=audit.lock_statuses)
 
     print()
     if verbose:
         print(format_verbose(findings))
     else:
-        print(format_digest(findings, now, smartlocks=audit.smartlocks))
+        print(digest)
 
     total = len(findings)
     high = sum(1 for f in findings if f.severity >= Severity.HIGH)
@@ -87,7 +90,7 @@ def _run_audit() -> None:
     if notify:
         from hospitable.telegram import send_digest
         try:
-            send_digest(format_digest(findings, now, smartlocks=audit.smartlocks))
+            send_digest(digest)
         except Exception as exc:
             log.error(
                 "Telegram delivery failed (%s) — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID",

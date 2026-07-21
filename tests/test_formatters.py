@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from checks.finding import Finding, Severity
+from checks.finding import Finding, LockStatus, Severity
 from hospitable.formatters import (
     TELEGRAM_MAX_UTF16,
     _BATT_LOW,
@@ -276,25 +276,10 @@ def test_secondary_sort_turnover_before_kh():
 def _lock(
     pct: float | None = 47,
     threshold: float | None = 30,
-    online: bool = True,
-    state_online: bool = True,
-    battery_present: bool = True,
-    pct_present: bool = True,
+    offline: bool = False,
     name: str = "Front",
-) -> dict:
-    battery: dict | None = None
-    if battery_present:
-        battery = {
-            "percentage": pct if pct_present else None,
-            "threshold": threshold,
-            "status": "ok",
-        }
-    return {
-        "name": name,
-        "online": online,
-        "issues": [],
-        "state": {"online": state_online, "battery": battery},
-    }
+) -> LockStatus:
+    return LockStatus(name=name, pct=pct, threshold=threshold, offline=offline)
 
 
 def _battery_finding(pct: int = 15, thr: int = 30) -> Finding:
@@ -310,12 +295,13 @@ def _battery_finding(pct: int = 15, thr: int = 30) -> Finding:
             f"tripwire: percentage {pct}% < configured threshold {thr}%"
         ),
         entity_id="lock-abc123",
+        extra={"pct": float(pct), "threshold": float(thr), "offline": False},
     )
 
 
 def test_battery_status_line_healthy():
     """Healthy lock shows 🔋, percentage, and alert threshold."""
-    digest = format_digest([], NOW, smartlocks=[_lock(pct=47, threshold=30)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(pct=47, threshold=30)])
     assert _BATT_OK in digest
     assert "47%" in digest
     assert "alert at 30%" in digest
@@ -323,28 +309,28 @@ def test_battery_status_line_healthy():
 
 def test_battery_status_line_low():
     """Low lock shows 🪫."""
-    digest = format_digest([], NOW, smartlocks=[_lock(pct=15, threshold=30)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(pct=15, threshold=30)])
     assert _BATT_LOW in digest
     assert "15%" in digest
 
 
 def test_battery_status_line_missing_pct():
     """Missing percentage → 'battery unknown' with 🪫."""
-    digest = format_digest([], NOW, smartlocks=[_lock(pct_present=False)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(pct=None)])
     assert "battery unknown" in digest
     assert _BATT_LOW in digest
 
 
 def test_battery_status_line_offline():
     """Offline lock → 'offline' with ⚠️."""
-    digest = format_digest([], NOW, smartlocks=[_lock(online=False)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(offline=True)])
     assert "offline" in digest
     assert _BATT_WARN in digest
 
 
 def test_battery_status_line_no_locks():
     """Zero smartlocks → no battery icon emitted."""
-    digest = format_digest([], NOW, smartlocks=[])
+    digest = format_digest([], NOW, lock_statuses=[])
     assert _BATT_OK not in digest
     assert _BATT_LOW not in digest
     assert _BATT_WARN not in digest
@@ -353,7 +339,7 @@ def test_battery_status_line_no_locks():
 def test_battery_status_line_not_in_count():
     """Battery status line is informational — findings count in header is unchanged."""
     f = _f()
-    digest = format_digest([f], NOW, smartlocks=[_lock()])
+    digest = format_digest([f], NOW, lock_statuses=[_lock()])
     header = digest.splitlines()[0]
     assert "1 finding" in header
 
@@ -379,14 +365,14 @@ def test_verbose_battery_detail_unchanged():
 
 def test_battery_status_line_pct_equals_threshold():
     """pct exactly equal to threshold → 🔋 (healthy side of the >= boundary, not low)."""
-    digest = format_digest([], NOW, smartlocks=[_lock(pct=30, threshold=30)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(pct=30, threshold=30)])
     assert _BATT_OK in digest
     assert _BATT_LOW not in digest
 
 
 def test_battery_status_line_no_battery_object():
     """Battery object entirely absent (not just pct None) → 'battery unknown', no crash."""
-    digest = format_digest([], NOW, smartlocks=[_lock(battery_present=False)])
+    digest = format_digest([], NOW, lock_statuses=[_lock(pct=None, threshold=None)])
     assert "battery unknown" in digest
     assert _BATT_LOW in digest
 
@@ -395,7 +381,7 @@ def test_smartlock_battery_shared_front_door_label():
     """Status line and CRITICAL alert both use _LOCK_LOCATION, never a room name."""
     lk = _lock()
     f = _battery_finding(pct=15, thr=30)
-    digest = format_digest([f], NOW, smartlocks=[lk])
+    digest = format_digest([f], NOW, lock_statuses=[lk])
     lines = digest.splitlines()
     # Status line is directly under the header (line index 1)
     assert _LOCK_LOCATION in lines[1]

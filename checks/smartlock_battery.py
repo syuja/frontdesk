@@ -31,9 +31,21 @@ from __future__ import annotations
 
 import datetime
 import logging
+from typing import TypedDict
 
 from checks._utils import lookup_prop_name
 from checks.finding import AuditData, CheckConfig, Finding, Severity
+
+
+class _BatteryExtra(TypedDict, total=False):
+    """Structured payload written into Finding.extra by check_smartlock_battery.
+
+    All keys optional (total=False) — only present when the value was readable.
+    The human formatter reads these instead of regex-recovering from detail.
+    """
+    pct: float        # battery.percentage, parsed
+    threshold: float  # battery.threshold, parsed; absent if threshold was missing
+    offline: bool     # True if dev_online or state_online is False
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +74,10 @@ def check_smartlock_battery(
         dev_online = lock.get("online")
         state_online = state.get("online")
 
+        # Structured values for Finding.extra — set only when successfully parsed.
+        _pct: float | None = None
+        _threshold: float | None = None
+
         # (e) offline — uncertainty: cannot confirm a guest could enter
         if dev_online is False or state_online is False:
             tripwires.append("lock offline — state unknown")
@@ -80,6 +96,8 @@ def check_smartlock_battery(
                 try:
                     pct_f = float(pct_raw)
                     threshold_f = float(threshold_raw) if threshold_raw is not None else None
+                    _pct = pct_f
+                    _threshold = threshold_f
 
                     # (a) below device-configured threshold
                     if threshold_f is not None and pct_f < threshold_f:
@@ -136,6 +154,13 @@ def check_smartlock_battery(
             "OFFLINE" if (dev_online is False or state_online is False) else "online"
         )
 
+        _offline = dev_online is False or state_online is False
+        _extra: _BatteryExtra = {"offline": _offline}
+        if _pct is not None:
+            _extra["pct"] = _pct
+        if _threshold is not None:
+            _extra["threshold"] = _threshold
+
         findings.append(Finding(
             check="smartlock_battery",
             severity=Severity.CRITICAL,
@@ -148,6 +173,7 @@ def check_smartlock_battery(
                 f"tripwire: {'; '.join(tripwires)}"
             ),
             entity_id=lock_id,
+            extra=_extra,
         ))
 
     return findings

@@ -766,6 +766,55 @@ def test_smartlock_dedup_offline_wins():
     assert "offline" in findings[0].detail
 
 
+# ── check_smartlock_battery — Finding.extra structured payload ────────────────
+
+def test_smartlock_extra_pct_and_threshold_present():
+    """Below-threshold finding carries pct and threshold in extra."""
+    audit = _empty_audit(smartlocks=[_lock(pct=15, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    extra = findings[0].extra
+    assert extra.get("pct") == 15.0
+    assert extra.get("threshold") == 30.0
+    assert extra.get("offline") is False
+
+
+def test_smartlock_extra_offline_true():
+    """Offline finding carries offline=True in extra; pct still present if readable."""
+    audit = _empty_audit(smartlocks=[_lock(pct=15, threshold=30, online=False)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].extra.get("offline") is True
+
+
+def test_smartlock_extra_pct_none_when_missing():
+    """When percentage is missing, extra has no 'pct' key (not present, not None)."""
+    audit = _empty_audit(smartlocks=[_lock(pct=None, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "pct" not in findings[0].extra
+
+
+def test_smartlock_extra_threshold_absent_when_missing():
+    """When threshold missing, extra has no 'threshold' key."""
+    audit = _empty_audit(smartlocks=[_lock(pct=19, threshold=None)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert "threshold" not in findings[0].extra
+    assert findings[0].extra.get("pct") == 19.0
+
+
+def test_smartlock_healthy_extra_empty():
+    """Healthy lock produces no finding — confirmed by existing test; extra is not involved."""
+    # Sanity: Finding.extra defaults to {} for all other checks too.
+    from checks.finding import Finding, Severity
+    f = Finding(
+        check="unanswered_inquiry", severity=Severity.HIGH,
+        property_uuid="x", property_name="y", title="t", detail="d",
+    )
+    assert f.extra == {}
+
+
 # ── A5 tests: guest names, escalation, severity re-map, label text ────────────
 
 def test_unanswered_inquiry_guest_name_in_title(monkeypatch):

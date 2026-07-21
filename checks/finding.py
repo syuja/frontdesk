@@ -33,9 +33,12 @@ class Finding:
     property_uuid: str
     property_name: str
     title: str            # one-line human summary; includes guest first name when known
-    detail: str           # specifics: ids, dates, ages; UUIDs for traceability
+    detail: str           # specifics: ids, dates, ages; UUIDs for tracing (verbose only)
     entity_id: str | None = None   # reservation/review/inquiry/topic uuid
     guest_name: str | None = None  # first name only; None → render as "unknown guest"
+    # Structured payload for the human formatter — avoids regex-recovering data from detail.
+    # Keys are check-specific; see each check's _*Extra TypedDict for the contract.
+    extra: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -71,6 +74,19 @@ class CheckConfig:
     turnover_gap_medium_days: int = 3    # two or three days
 
 
+@dataclasses.dataclass(frozen=True)
+class LockStatus:
+    """Typed battery snapshot for one deduped smartlock — drives the always-on status line.
+
+    Built by the runner from the deduped lock list so it exists for healthy locks that produce
+    no Finding. The human formatter reads this; raw API dicts never reach the formatter.
+    """
+    name: str
+    pct: float | None        # None = unreadable (missing or unparseable)
+    threshold: float | None  # device-configured alert threshold; None if absent
+    offline: bool            # True if device.online or state.online is False
+
+
 @dataclasses.dataclass
 class AuditData:
     """
@@ -89,3 +105,5 @@ class AuditData:
     # Deduped unique smartlocks across all property listings; runner populates this.
     # Keyed by device id — one physical lock may appear under multiple listings.
     smartlocks: list[dict] = dataclasses.field(default_factory=list)
+    # Typed battery snapshots built from smartlocks; safe to pass to the formatter.
+    lock_statuses: list[LockStatus] = dataclasses.field(default_factory=list)

@@ -10,7 +10,7 @@ import logging
 import hospitable.data as hdata
 from hospitable.client import HospitableClient
 
-from checks.finding import AuditData, CheckConfig, Finding
+from checks.finding import AuditData, CheckConfig, Finding, LockStatus
 from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
@@ -74,6 +74,32 @@ def _dedup_smartlocks(raw: list[dict]) -> list[dict]:
     return result
 
 
+def _build_lock_statuses(smartlocks: list[dict]) -> list[LockStatus]:
+    """Build typed LockStatus objects from the already-deduped lock dicts."""
+    statuses: list[LockStatus] = []
+    for lock in smartlocks:
+        if lock.get("device_type") != "smartlock":
+            continue
+        state = lock.get("state") or {}
+        offline = lock.get("online") is False or state.get("online") is False
+        pct: float | None = None
+        threshold: float | None = None
+        try:
+            battery = state.get("battery") or {}
+            pct = float(battery.get("percentage"))
+            threshold_raw = battery.get("threshold")
+            threshold = float(threshold_raw) if threshold_raw is not None else None
+        except (TypeError, ValueError):
+            pass
+        statuses.append(LockStatus(
+            name=lock.get("name") or "unknown",
+            pct=pct,
+            threshold=threshold,
+            offline=offline,
+        ))
+    return statuses
+
+
 def build_audit_data(
     client: HospitableClient,
     *,
@@ -128,6 +154,7 @@ def build_audit_data(
         kh=kh,
         client=client,
         smartlocks=smartlocks,
+        lock_statuses=_build_lock_statuses(smartlocks),
     )
 
 
