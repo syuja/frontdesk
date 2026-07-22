@@ -1,0 +1,7 @@
+tests/
+prototypes/
+.venv/
+__pycache__/
+openapi_hospitable_api_documentation.json
+.env
+.env.*

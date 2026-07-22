@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  HospitablePat:
+    Type: String
+    NoEcho: true
+  TelegramBotToken:
+    Type: String
+    NoEcho: true
+  TelegramChatId:
+    Type: String
+    NoEcho: true
+
+Resources:
+  AuditFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: hospitable.lambda_handler.handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 300
+      Environment:
+        Variables:
+          HOSPITABLE_PAT: !Ref HospitablePat
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          TELEGRAM_CHAT_ID: !Ref TelegramChatId
+      Events:
+        NightlySchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 11 * * ? *)
