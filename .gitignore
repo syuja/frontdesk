@@ -25,6 +25,7 @@ logs/
 *.log
 response.json
 *.txt
+!requirements.txt
 
 # macOS
 .DS_Store
