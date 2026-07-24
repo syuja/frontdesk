@@ -69,7 +69,8 @@ def get_properties(client: HospitableClient) -> list[dict]:
 
     Each record includes:
     - uuid         (str)  — normalized from 'id'
-    - parent_child (str|None) — null / "parent" / "child"
+    - parent_child (dict|None) — {"type": "parent"|"child", "parent": uuid|None,
+                                   "children": [...], "siblings": [...]}
     - listings     (list) — child listing objects for parent properties
 
     properties[] is not required on /properties — it returns all.

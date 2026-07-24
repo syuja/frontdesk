@@ -516,13 +516,13 @@ def test_kh_empty_hub_no_findings():
 def _res(
     uuid: str,
     checkout: str,
-    status: str = "confirmed",
+    status: str = "accepted",
     prop_uuid: str = "aaaa-0001",
     checkin: str | None = None,
 ) -> dict:
     d: dict = {
         "uuid": uuid, "id": uuid,
-        "status": status,
+        "reservation_status": {"current": {"category": status}},
         "check_out": checkout,
         "property_uuid": prop_uuid,
     }
@@ -631,10 +631,10 @@ def test_turnover_gap_cancelled_ignored_in_prior_checkout():
 
 
 def test_turnover_gap_not_accepted_ignored():
-    """not_accepted reservation is excluded via deny-list — no valid prior → skip."""
+    """'not accepted' (real API shape with space) is excluded — no valid prior → skip."""
     same_day = str(TODAY + datetime.timedelta(days=3))
     reservations = [
-        _res("res-not-accepted", same_day, status="not_accepted", checkin=str(TODAY)),
+        _res("res-not-accepted", same_day, status="not accepted", checkin=str(TODAY)),
         _res("res-in",           same_day, checkin=same_day),
     ]
     audit = _empty_audit(reservations=reservations)

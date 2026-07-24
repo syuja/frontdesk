@@ -10,7 +10,8 @@ import logging
 import hospitable.data as hdata
 from hospitable.client import HospitableClient
 
-from checks.finding import AuditData, CheckConfig, Finding, LockStatus
+from checks.finding import AuditData, CheckConfig, Finding, LockStatus, PropertyOccupancy
+from checks._utils import extract_uuid, parse_date
 from checks.unanswered_inquiry import check_unanswered_inquiry
 from checks.actionable_review import check_actionable_review
 from checks.knowledge_hub_hygiene import check_knowledge_hub_hygiene
@@ -18,6 +19,92 @@ from checks.turnover_gap import check_turnover_gap
 from checks.smartlock_battery import check_smartlock_battery
 
 log = logging.getLogger(__name__)
+
+
+def _res_cin(res: dict) -> datetime.date | None:
+    for k in ("check_in", "checkin", "check_in_date", "checkin_date", "start_date"):
+        d = parse_date(res.get(k))
+        if d:
+            return d
+    return None
+
+
+def _res_cout(res: dict) -> datetime.date | None:
+    for k in ("check_out", "checkout", "check_out_date", "checkout_date", "end_date"):
+        d = parse_date(res.get(k))
+        if d:
+            return d
+    return None
+
+
+def build_occupancy_view(
+    audit: AuditData,
+    now: datetime.datetime,
+) -> list[PropertyOccupancy]:
+    """Build a per-property occupancy snapshot from pre-fetched reservation data.
+
+    For each property: resolves the current guest (checkin <= today < checkout),
+    their checkout date and stay length, or — if vacant — the next upcoming checkin.
+    Whole-unit vs room distinction comes from the property's parent_child field.
+    """
+    today = now.date()
+
+    by_prop: dict[str, list[dict]] = {p["uuid"]: [] for p in audit.props}
+    for res in audit.reservations:
+        if hdata.res_status(res) != "accepted":
+            continue
+        cin = _res_cin(res)
+        cout = _res_cout(res)
+        if cin is None or cout is None:
+            continue
+        prop_uuid = extract_uuid(res, "property_uuid", "property_id", "property", "properties")
+        if prop_uuid in by_prop:
+            by_prop[prop_uuid].append(res)
+
+    result: list[PropertyOccupancy] = []
+    for prop in audit.props:
+        puuid = prop["uuid"]
+        pname = prop.get("name") or puuid
+        is_whole_unit = (prop.get("parent_child") or {}).get("type") != "child"
+
+        current: dict | None = None
+        for res in by_prop.get(puuid, []):
+            cin = _res_cin(res)
+            cout = _res_cout(res)
+            if cin is not None and cout is not None and cin <= today <= cout:
+                current = res
+                break
+
+        if current is not None:
+            cin = _res_cin(current)
+            cout = _res_cout(current)
+            guest_name = (current.get("guest") or {}).get("first_name") or None
+            nights = (cout - cin).days if cin and cout else None
+            result.append(PropertyOccupancy(
+                property_uuid=puuid,
+                property_name=pname,
+                is_whole_unit=is_whole_unit,
+                guest_name=guest_name,
+                checkout_date=cout,
+                nights=nights,
+                next_checkin=None,
+            ))
+        else:
+            upcoming = [
+                _res_cin(res) for res in by_prop.get(puuid, [])
+                if _res_cin(res) is not None and _res_cin(res) > today
+            ]
+            result.append(PropertyOccupancy(
+                property_uuid=puuid,
+                property_name=pname,
+                is_whole_unit=is_whole_unit,
+                guest_name=None,
+                checkout_date=None,
+                nights=None,
+                next_checkin=min(upcoming) if upcoming else None,
+            ))
+
+    return result
 
 
 def _dedup_smartlocks(raw: list[dict]) -> list[dict]:

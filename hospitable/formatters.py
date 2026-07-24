@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 import re
 
-from checks.finding import CheckConfig as _CheckConfig, Finding, LockStatus, Severity
+from checks.finding import CheckConfig as _CheckConfig, Finding, LockStatus, PropertyOccupancy, Severity
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -129,6 +129,54 @@ def _fmt_battery_status_line(lock: LockStatus) -> str:
     return f"{icon} {_LOCK_LOCATION} — {pct_str}"
 
 
+def _fmt_occ_date(d: datetime.date, today: datetime.date) -> str:
+    """Human date for the occupancy block: 'today', 'tomorrow', or 'Fri 7/24'."""
+    if d == today:
+        return "today"
+    if d == today + datetime.timedelta(days=1):
+        return "tomorrow"
+    return f"{d.strftime('%a')} {d.month}/{d.day}"
+
+
+def _fmt_occupancy_line(o: PropertyOccupancy, today: datetime.date) -> str:
+    """One occupancy line for a single property."""
+    icon = "🏠" if o.is_whole_unit else "🛏"
+    label = _short_prop(o.property_name)
+    if o.guest_name is not None:
+        out_str = _fmt_occ_date(o.checkout_date, today) if o.checkout_date else "?"
+        nights_str = f" ({o.nights}-night)" if o.nights is not None else ""
+        return f"{icon} {label} — {o.guest_name}, out {out_str}{nights_str}"
+    if o.next_checkin is not None:
+        return f"{icon} {label} — empty, next in {_fmt_occ_date(o.next_checkin, today)}"
+    return f"{icon} {label} — empty"
+
+
+def _render_occupancy_block(
+    occupancies: list[PropertyOccupancy],
+    today: datetime.date,
+) -> list[str]:
+    """Render occupancy lines with parent/child collapsing.
+
+    When the whole-unit (parent) listing has a current guest, child room lines
+    are suppressed — the booking covers all rooms. When individual rooms are
+    booked (or all are vacant), the whole-unit line is suppressed so only the
+    per-room view appears.
+    """
+    if not occupancies:
+        return []
+    has_children = any(not o.is_whole_unit for o in occupancies)
+    whole_unit_occupied = any(o.is_whole_unit and o.guest_name is not None for o in occupancies)
+    lines = []
+    for o in occupancies:
+        if has_children:
+            if whole_unit_occupied and not o.is_whole_unit:
+                continue
+            if not whole_unit_occupied and o.is_whole_unit:
+                continue
+        lines.append(_fmt_occupancy_line(o, today))
+    return lines
+
+
 def _fmt_date(iso_date: str) -> str:
     """Format a YYYY-MM-DD date string as M/D (e.g. '2026-07-14' → '7/14')."""
     try:
@@ -218,20 +266,24 @@ def format_digest(
     now: datetime.datetime,
     account_name: str = "Villa del Encanto",
     lock_statuses: list[LockStatus] | None = None,
+    occupancy: list[PropertyOccupancy] | None = None,
 ) -> str:
-    """Human-readable digest: compact header + battery status + emoji-grouped finding bullets.
+    """Human-readable digest: header + battery status + occupancy + emoji-grouped findings.
 
-    lock_statuses: typed lock snapshots from AuditData; one status line per lock is inserted
-    directly under the header. Omit or pass [] to suppress the status block.
-    Zero findings → all-clear message so the reader knows the run completed.
+    lock_statuses: one status line per lock, directly under the header.
+    occupancy: per-property occupancy snapshot; rendered below battery, above findings.
+    Omit either to suppress that block. Zero findings → all-clear message.
     Suitable for Telegram and default console output.
     """
     date_str = now.strftime("%Y-%m-%d")
+    today = now.date()
     batt_lines = [_fmt_battery_status_line(lk) for lk in (lock_statuses or [])]
+    occ_lines = _render_occupancy_block(occupancy or [], today)
 
     if not findings:
         lines = [f"\U0001f3e0 {account_name} — {date_str}"]
         lines.extend(batt_lines)
+        lines.extend(occ_lines)
         lines.append("")
         lines.append("✅ All clear — no issues found")
         return "\n".join(lines)
@@ -257,6 +309,7 @@ def format_digest(
 
     lines: list[str] = [header]
     lines.extend(batt_lines)
+    lines.extend(occ_lines)
     for sev in _SEV_ORDER:
         group = by_sev.get(sev)
         if not group:
@@ -270,19 +323,39 @@ def format_digest(
     return "\n".join(lines)
 
 
-def format_verbose(findings: list[Finding]) -> str:
+def format_verbose(
+    findings: list[Finding],
+    occupancy: list[PropertyOccupancy] | None = None,
+) -> str:
     """Debug/verbose format — preserves entity= UUIDs, raw detail, full timestamps.
 
     Matches the previous default console output; activated via --verbose.
     """
+    lines: list[str] = []
+
+    if occupancy:
+        bar = "─" * 60
+        lines.append(bar)
+        lines.append("  OCCUPANCY")
+        lines.append(bar)
+        for o in occupancy:
+            state = "occupied" if o.guest_name else "vacant"
+            lines.append(f"[{state}] {o.property_name}  ({o.property_uuid[:8]})")
+            if o.guest_name:
+                lines.append(
+                    f"  guest={o.guest_name}  checkout={o.checkout_date}  nights={o.nights}"
+                )
+            elif o.next_checkin:
+                lines.append(f"  next_checkin={o.next_checkin}")
+            lines.append("")
+
     if not findings:
-        return "No findings — account looks clean."
+        lines.append("No findings — account looks clean.")
+        return "\n".join(lines)
 
     by_sev: dict[Severity, list[Finding]] = {}
     for f in findings:
         by_sev.setdefault(f.severity, []).append(f)
-
-    lines: list[str] = []
     for sev in _SEV_ORDER:
         group = by_sev.get(sev)
         if not group:

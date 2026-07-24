@@ -10,6 +10,7 @@ AuditData      — pre-pulled data bundle; runner fetches once, checks consume
 from __future__ import annotations
 
 import dataclasses
+import datetime
 from enum import IntEnum
 from typing import Any
 
@@ -72,6 +73,24 @@ class CheckConfig:
     turnover_gap_critical_days: int = 0  # same-day: zero cleaning buffer
     turnover_gap_high_days: int = 1      # one day
     turnover_gap_medium_days: int = 3    # two or three days
+
+
+@dataclasses.dataclass(frozen=True)
+class PropertyOccupancy:
+    """Per-property occupancy snapshot — drives the occupancy block in the human digest.
+
+    Built by build_occupancy_view() in runner.py from pre-fetched reservation data.
+    is_whole_unit: True when parent_child is not "child" (parent or standalone listing).
+    guest_name/checkout_date/nights are None when the property is vacant.
+    next_checkin is the soonest future check-in date when vacant; None if none found.
+    """
+    property_uuid: str
+    property_name: str
+    is_whole_unit: bool
+    guest_name: str | None
+    checkout_date: datetime.date | None
+    nights: int | None
+    next_checkin: datetime.date | None
 
 
 @dataclasses.dataclass(frozen=True)

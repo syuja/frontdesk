@@ -37,7 +37,7 @@ log = logging.getLogger("hospitable")
 
 def _run_audit() -> None:
     from hospitable.client import HospitableClient
-    from checks.runner import build_audit_data, run_all, _build_lock_statuses
+    from checks.runner import build_audit_data, run_all, _build_lock_statuses, build_occupancy_view
     from checks.finding import CheckConfig, Severity
     from hospitable.formatters import format_digest, format_verbose
 
@@ -74,12 +74,13 @@ def _run_audit() -> None:
         log.warning("⚠️  FAKE LOW BATTERY INJECTED — TEST MODE, not a real reading")
 
     findings = run_all(audit, now=now, config=config)
+    occupancy = build_occupancy_view(audit, now)
 
-    digest = format_digest(findings, now, lock_statuses=audit.lock_statuses)
+    digest = format_digest(findings, now, lock_statuses=audit.lock_statuses, occupancy=occupancy)
 
     print()
     if verbose:
-        print(format_verbose(findings))
+        print(format_verbose(findings, occupancy=occupancy))
     else:
         print(digest)
 

@@ -38,9 +38,8 @@ from checks.finding import AuditData, CheckConfig, Finding, Severity
 
 log = logging.getLogger(__name__)
 
-# Deny-list: unknown/unrecognised statuses default to INCLUDED — a missed turnover is
-# worse than a false positive. Flip this if a new terminal status appears in the API.
-_SKIP_STATUSES = frozenset({"cancelled", "not_accepted", "declined"})
+# Allowlist: only confirmed bookings occupy calendar slots. Non-accepted statuses
+# ("not accepted", "cancelled", pending inquiries) must not generate turnover findings.
 
 
 def _checkin_date(res: dict) -> datetime.date | None:
@@ -99,8 +98,7 @@ def check_turnover_gap(
     # Tuple: (cin, cout, res_uuid, prop_uuid, pname, guest_name)
     events: list[tuple[datetime.date, datetime.date, str, str, str, str | None]] = []
     for res in audit.reservations:
-        status = hdata.res_status(res) or res.get("status")
-        if status in _SKIP_STATUSES:
+        if hdata.res_status(res) != "accepted":
             continue
         cin = _checkin_date(res)
         cout = _checkout_date(res)

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from checks.finding import Finding, LockStatus, Severity
+from checks.finding import Finding, LockStatus, PropertyOccupancy, Severity
 from hospitable.formatters import (
     TELEGRAM_MAX_UTF16,
     _BATT_LOW,
@@ -390,6 +390,116 @@ def test_smartlock_battery_shared_front_door_label():
     assert _LOCK_LOCATION in bullet
     # No arbitrary room label should appear in either
     assert "Ensuite" not in digest
+
+
+# ── Occupancy block ───────────────────────────────────────────────────────────
+
+# July 24 2026 is a Friday; used to pin weekday labels in assertions.
+_OCC_NOW = datetime.datetime(2026, 7, 24, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+
+def _occ(
+    name: str = "Villa del Encanto | Ensuite Room",
+    uuid: str = "249a5a68",
+    is_whole_unit: bool = False,
+    guest_name: str | None = None,
+    checkout: datetime.date | None = None,
+    nights: int | None = None,
+    next_checkin: datetime.date | None = None,
+) -> PropertyOccupancy:
+    return PropertyOccupancy(
+        property_uuid=uuid,
+        property_name=name,
+        is_whole_unit=is_whole_unit,
+        guest_name=guest_name,
+        checkout_date=checkout,
+        nights=nights,
+        next_checkin=next_checkin,
+    )
+
+
+def test_occupancy_occupied_room():
+    """Occupied child room shows 🛏, guest name, day-date, and night count."""
+    o = _occ(guest_name="Cardon", checkout=datetime.date(2026, 7, 26), nights=4)
+    digest = format_digest([], _OCC_NOW, occupancy=[o])
+    assert "🛏 Ensuite — Cardon, out Sun 7/26 (4-night)" in digest
+
+
+def test_occupancy_checkout_today():
+    """Guest checking out today renders 'out today'."""
+    o = _occ(guest_name="Cardon", checkout=datetime.date(2026, 7, 24), nights=3)
+    digest = format_digest([], _OCC_NOW, occupancy=[o])
+    assert "out today" in digest
+
+
+def test_occupancy_checkout_tomorrow():
+    """Guest checking out tomorrow renders 'out tomorrow'."""
+    o = _occ(guest_name="Cardon", checkout=datetime.date(2026, 7, 25), nights=2)
+    digest = format_digest([], _OCC_NOW, occupancy=[o])
+    assert "out tomorrow" in digest
+
+
+def test_occupancy_empty_with_upcoming():
+    """Vacant room with future check-in shows 'empty, next in <day date>'."""
+    o = _occ(
+        name="Villa del Encanto | Queen Room", uuid="307872bb",
+        next_checkin=datetime.date(2026, 7, 27),
+    )
+    digest = format_digest([], _OCC_NOW, occupancy=[o])
+    assert "🛏 Queen — empty, next in Mon 7/27" in digest
+
+
+def test_occupancy_empty_no_upcoming():
+    """Vacant room with no upcoming reservation shows 'empty' only."""
+    o = _occ()
+    digest = format_digest([], _OCC_NOW, occupancy=[o])
+    assert "🛏 Ensuite — empty" in digest
+    assert "next in" not in digest
+
+
+def test_occupancy_whole_unit_collapses():
+    """Whole-unit booking shows 🏠 header; vacant child lines are suppressed."""
+    whole = _occ(
+        name="Villa del Encanto - Ensuite and Queen", uuid="4d22b785",
+        is_whole_unit=True,
+        guest_name="Priya", checkout=datetime.date(2026, 7, 26), nights=5,
+    )
+    ensuite = _occ()
+    queen   = _occ(name="Villa del Encanto | Queen Room", uuid="307872bb")
+    digest = format_digest([], _OCC_NOW, occupancy=[whole, ensuite, queen])
+    assert "🏠 Whole unit — Priya, out Sun 7/26 (5-night)" in digest
+    assert "🛏" not in digest
+
+
+def test_occupancy_per_room_suppresses_whole_unit():
+    """Per-room bookings suppress the vacant whole-unit parent line."""
+    whole = _occ(
+        name="Villa del Encanto - Ensuite and Queen", uuid="4d22b785",
+        is_whole_unit=True,
+    )
+    ensuite = _occ(guest_name="Cardon", checkout=datetime.date(2026, 7, 26), nights=4)
+    queen   = _occ(name="Villa del Encanto | Queen Room", uuid="307872bb")
+    digest = format_digest([], _OCC_NOW, occupancy=[whole, ensuite, queen])
+    assert "🛏 Ensuite" in digest
+    assert "🛏 Queen" in digest
+    assert "🏠 Whole unit" not in digest
+
+
+def test_occupancy_absent_when_none():
+    """Passing occupancy=None (default) adds no occupancy lines."""
+    digest = format_digest([], NOW)
+    assert "🛏" not in digest
+    assert "🏠 Whole unit" not in digest
+
+
+def test_occupancy_in_verbose():
+    """format_verbose includes occupancy block with ISO dates and UUID prefix."""
+    o = _occ(guest_name="Cardon", checkout=datetime.date(2026, 7, 26), nights=4)
+    verbose = format_verbose([], occupancy=[o])
+    assert "OCCUPANCY" in verbose
+    assert "Cardon" in verbose
+    assert "2026-07-26" in verbose
+    assert "249a5a68" in verbose
 
 
 # ── Verbose formatter ─────────────────────────────────────────────────────────
