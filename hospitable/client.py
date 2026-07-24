@@ -25,7 +25,7 @@ except ImportError:
 
 BASE_URL = "https://public.api.hospitable.com/v2"
 PAT_ENV_VAR = "HOSPITABLE_PAT"
-REQUEST_TIMEOUT = 20          # seconds per request
+REQUEST_TIMEOUT = 60          # seconds per request
 MAX_RETRIES = 3               # applies to 429 and 5xx
 # Messages endpoint: hard-limited to 2 req/min per reservation (confirmed live
 # via X-RateLimit-Limit/Remaining headers in session 0). 31s gap gives a 1s buffer.
@@ -73,7 +73,18 @@ class HospitableClient:
         last_resp: requests.Response | None = None
 
         for attempt in range(MAX_RETRIES):
-            resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            try:
+                resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout) as exc:
+                if attempt < MAX_RETRIES - 1:
+                    wait = 2 ** attempt  # 1s, 2s
+                    log.warning(
+                        "%s on %s — retrying in %ds (attempt %d/%d)",
+                        type(exc).__name__, path, wait, attempt + 1, MAX_RETRIES,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
             last_resp = resp
 
             if resp.status_code == 429:
