@@ -51,5 +51,9 @@ def send_digest(digest: str) -> None:
         },
         timeout=10,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+        raise RuntimeError(
+            f"Telegram {resp.status_code}: {body.get('description', resp.text)}"
+        )
     log.info("Digest sent to Telegram (%d UTF-16 units)", units)
