@@ -386,6 +386,64 @@ def test_actionable_review_custom_window_days():
     assert check_actionable_review(audit, now=NOW, config=CheckConfig(review_window_days=7)) == []
 
 
+# ── check_actionable_review: deadline escalation (MEDIUM → HIGH) ─────────────
+#
+# NOW = 2025-07-05T12:00:00Z; escalation threshold = 24h (default).
+# parse_dt("YYYY-MM-DD") → midnight UTC; hours_left = (midnight - 12:00) = 12h → HIGH.
+# parse_dt("YYYY-MM-DDT12:00:00Z") → exact datetime; hours_left = 24.0 → MEDIUM (< not <=).
+
+def test_actionable_review_expires_soon_high():
+    """expires_at tomorrow midnight (date-only) is 12h away from NOW → HIGH."""
+    # parse_dt("2025-07-06") → 2025-07-06T00:00Z; (00:00 - 12:00) = 12h < 24 → HIGH
+    review = _review("rev-soon", "pending", True, expires_at="2025-07-06")
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+
+
+def test_actionable_review_expires_far_medium():
+    """expires_at 3 days away → hours_left ~60h > 24 → MEDIUM."""
+    review = _review("rev-far", "pending", True, expires_at="2025-07-08")
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+
+def test_actionable_review_exactly_at_24h_boundary_medium():
+    """expires_at exactly 24h from NOW → hours_left=24.0; 24<24=False → MEDIUM (boundary is MEDIUM)."""
+    # NOW=2025-07-05T12:00Z + 24h = 2025-07-06T12:00Z
+    review = _review("rev-boundary", "pending", True, expires_at="2025-07-06T12:00:00Z")
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+
+def test_actionable_review_checkout_fallback_near_deadline_high():
+    """Checkout fallback: deadline tomorrow midnight is 12h away → HIGH."""
+    # checkout=2025-06-22 + 14d = 2025-07-06 (tomorrow midnight UTC); hours_left=12h → HIGH
+    review = _review("rev-co-near", "pending", True, check_out="2025-06-22")
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+
+
+def test_actionable_review_no_anchor_flagged_medium():
+    """No expires_at and no checkout → still flagged (actionable), at MEDIUM (can't escalate)."""
+    review = {
+        "uuid": "rev-noanchor", "id": "rev-noanchor",
+        "status": "pending", "can_be_sent_now": True,
+        "property_uuid": "aaaa-0001",
+    }
+    audit = _empty_audit(reviews=[review])
+    findings = check_actionable_review(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+
 # ── check_knowledge_hub_hygiene ───────────────────────────────────────────────
 
 def _item(updated_at: str, content: str = "some content") -> dict:
@@ -699,6 +757,7 @@ def test_smartlock_floor_backstop_no_threshold():
     audit = _empty_audit(smartlocks=[_lock(pct=19, threshold=None, status="low")])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "floor" in findings[0].detail
 
 
@@ -708,6 +767,7 @@ def test_smartlock_issues_entry_critical():
     audit = _empty_audit(smartlocks=[_lock(pct=50, threshold=30, status="good", issues=issues)])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "issues[]" in findings[0].detail
 
 
@@ -717,6 +777,7 @@ def test_smartlock_battery_object_missing_critical():
     audit = _empty_audit(smartlocks=[lock])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "battery data missing" in findings[0].detail
 
 
@@ -725,6 +786,7 @@ def test_smartlock_percentage_none_critical():
     audit = _empty_audit(smartlocks=[_lock(pct=None, threshold=30)])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "percentage missing" in findings[0].detail
 
 
@@ -733,6 +795,7 @@ def test_smartlock_device_offline_critical():
     audit = _empty_audit(smartlocks=[_lock(online=False)])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "offline" in findings[0].detail
 
 
@@ -741,6 +804,7 @@ def test_smartlock_state_online_false_critical():
     audit = _empty_audit(smartlocks=[_lock(state_online=False)])
     findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
     assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
     assert "offline" in findings[0].detail
 
 
@@ -813,6 +877,57 @@ def test_smartlock_healthy_extra_empty():
         property_uuid="x", property_name="y", title="t", detail="d",
     )
     assert f.extra == {}
+
+
+# ── check_smartlock_battery — MEDIUM low-band ─────────────────────────────────
+
+def test_smartlock_in_low_band_medium():
+    """38% with threshold 30: above CRITICAL, below 45% band → MEDIUM."""
+    audit = _empty_audit(smartlocks=[_lock(pct=38, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+    assert "low-band" in findings[0].detail
+
+
+def test_smartlock_above_low_band_no_finding():
+    """50% with threshold 30: above band → no finding."""
+    audit = _empty_audit(smartlocks=[_lock(pct=50, threshold=30)])
+    assert check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_smartlock_exactly_at_band_boundary_no_finding():
+    """Exactly 45% (== battery_low_band_pct default): < is strict → no finding."""
+    audit = _empty_audit(smartlocks=[_lock(pct=45, threshold=30)])
+    assert check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG) == []
+
+
+def test_smartlock_just_below_band_medium():
+    """44% with threshold 30: one below boundary → MEDIUM."""
+    audit = _empty_audit(smartlocks=[_lock(pct=44, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+
+def test_smartlock_below_threshold_no_low_band_overlap():
+    """29% < threshold 30 → exactly one CRITICAL finding; MEDIUM must not also fire."""
+    audit = _empty_audit(smartlocks=[_lock(pct=29, threshold=30)])
+    findings = check_smartlock_battery(audit, now=NOW, config=DEFAULT_CONFIG)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.CRITICAL
+
+
+def test_smartlock_low_band_custom_threshold():
+    """Custom battery_low_band_pct=40: 38% → MEDIUM; 42% → no finding."""
+    config = CheckConfig(battery_low_band_pct=40)
+    audit_low = _empty_audit(smartlocks=[_lock(pct=38, threshold=30)])
+    findings = check_smartlock_battery(audit_low, now=NOW, config=config)
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.MEDIUM
+
+    audit_ok = _empty_audit(smartlocks=[_lock(pct=42, threshold=30)])
+    assert check_smartlock_battery(audit_ok, now=NOW, config=config) == []
 
 
 # ── A5 tests: guest names, escalation, severity re-map, label text ────────────

@@ -1,5 +1,5 @@
 """
-Check: actionable_review  [HIGH]
+Check: actionable_review  [MEDIUM–HIGH]
 
 Flag pending guest reviews where the review window is confirmed still open.
 
@@ -12,7 +12,9 @@ Window bound (what makes the finding actionable):
   - If expires_at IS present: trust it — flag only if expires_at > today.
   - If expires_at is absent: fall back to checkout + review_window_days and
     flag only if that computed deadline is still in the future.
-  - If neither is available: skip conservatively.
+  - If neither is available: time-remaining can't be computed, so severity
+    can't be escalated — but the review still qualifies as actionable
+    (pending + can_be_sent_now), so it is still flagged, at MEDIUM.
 
 Rationale for the bound: can_be_sent_now=True and status=pending remain set
 long after the Airbnb window closes (confirmed: 10 of 11 live findings had
@@ -26,7 +28,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from checks._utils import extract_uuid, lookup_prop_name, parse_date
+from checks._utils import extract_uuid, lookup_prop_name, parse_date, parse_dt
 from checks.finding import AuditData, CheckConfig, Finding, Severity
 
 log = logging.getLogger(__name__)
@@ -43,7 +45,12 @@ def check_actionable_review(
     the review window is still open before flagging.
 
     Window bound (primary: expires_at; fallback: checkout + review_window_days).
-    If neither is available the review is skipped conservatively.
+    If neither is available, the review is still flagged (it remains
+    actionable) but at the non-escalated default — there's no deadline to
+    measure time-to-act against.
+
+    Severity: MEDIUM by default; escalates to HIGH when fewer than
+    config.review_escalate_hours remain before the submission deadline.
     """
     prop_index = {p["uuid"]: p for p in audit.props}
     today = now.date()
@@ -72,6 +79,16 @@ def check_actionable_review(
                 continue
             days_left = (expires - today).days
             bound_detail = f"expires={expires} ({days_left}d remaining)"
+            expires_dt = parse_dt(expires_str)
+            # parse_dt may return a naive datetime (date-only strings in Python 3.11+
+            # succeed in fromisoformat without a timezone); anchor to UTC so the
+            # subtraction from tz-aware now works.
+            if expires_dt is not None and expires_dt.tzinfo is None:
+                expires_dt = expires_dt.replace(tzinfo=datetime.timezone.utc)
+            hours_left = (
+                (expires_dt - now).total_seconds() / 3600
+                if expires_dt else days_left * 24
+            )
         elif checkout is not None:
             # Fallback: estimate deadline from checkout date
             deadline = checkout + window
@@ -86,10 +103,21 @@ def check_actionable_review(
                 f"window=checkout+{config.review_window_days}d"
                 f" → {deadline} ({days_left}d remaining)"
             )
+            deadline_dt = datetime.datetime(
+                deadline.year, deadline.month, deadline.day,
+                tzinfo=datetime.timezone.utc,
+            )
+            hours_left = (deadline_dt - now).total_seconds() / 3600
         else:
-            # No anchor to verify the window — skip conservatively
-            log.debug("Review %s: no expires_at and no checkout date — skipping", review_uuid[:8])
-            continue
+            # No anchor to verify time-remaining — still actionable (pending +
+            # can_be_sent_now), but can't be escalated without a deadline to
+            # measure against. Flag at the non-escalated default.
+            log.debug(
+                "Review %s: no expires_at and no checkout date — flagging at MEDIUM (no deadline anchor)",
+                review_uuid[:8],
+            )
+            bound_detail = "no deadline anchor — window unverified, cannot escalate"
+            hours_left = None
 
         guest_name = (review.get("guest") or {}).get("first_name") or None
         title_guest = guest_name or "unknown guest"
@@ -99,9 +127,14 @@ def check_actionable_review(
             parts.append(f"checkout={checkout} ({days_since}d ago)")
         parts.append(bound_detail)
 
+        severity = (
+            Severity.HIGH
+            if hours_left is not None and hours_left < config.review_escalate_hours
+            else Severity.MEDIUM
+        )
         findings.append(Finding(
             check="actionable_review",
-            severity=Severity.MEDIUM,
+            severity=severity,
             property_uuid=prop_uuid,
             property_name=pname,
             title=f"Actionable review — {title_guest}, window open now",

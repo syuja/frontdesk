@@ -59,11 +59,22 @@ class CheckConfig:
     # estimated as checkout + review_window_days. Reviews past their computed deadline
     # are skipped — can_be_sent_now/pending alone overstate actionability.
     review_window_days: int = 14
+    # actionable_review: escalate from MEDIUM to HIGH when fewer than this many hours
+    # remain in the submission window (time-to-act is imminent). The deadline is taken
+    # from expires_at when present (parsed as a datetime for precision) or from the
+    # checkout + review_window_days fallback (anchored to midnight UTC).
+    review_escalate_hours: int = 24
 
     # smartlock_battery: flag if battery.percentage falls below this backstop when
     # the device-configured threshold (battery.threshold) is absent or unreliable.
     # Primary trigger is battery.percentage < battery.threshold; this is the fallback.
     battery_floor_pct: int = 20
+    # smartlock_battery: percentage below which a MEDIUM "battery getting low" finding
+    # fires when no CRITICAL tripwire is active. Effective MEDIUM range is
+    # [max(device_threshold, battery_floor_pct), battery_low_band_pct). Weeks of
+    # runway still remain at this level — "buy batteries sometime," not urgent
+    # enough for HIGH; severity tracks time-to-act, not badness.
+    battery_low_band_pct: int = 45
 
     # turnover_gap: how far ahead to scan for upcoming check-ins
     turnover_lookahead_days: int = 7

@@ -1,5 +1,5 @@
 """
-Check: smartlock_battery  [CRITICAL]
+Check: smartlock_battery  [CRITICAL / MEDIUM]
 
 Flag smartlocks whose battery is low, unreadable, or whose device is offline.
 
@@ -58,7 +58,9 @@ def check_smartlock_battery(
 ) -> list[Finding]:
     """
     Inspect each deduped smartlock for battery or connectivity issues.
-    CRITICAL severity only — a dead or offline lock cannot admit a guest.
+
+    CRITICAL: any tripwire (below threshold/floor, offline, missing data).
+    MEDIUM: battery readable, no CRITICAL tripwire, pct < config.battery_low_band_pct.
     """
     prop_index = {p["uuid"]: p for p in audit.props}
     findings: list[Finding] = []
@@ -125,7 +127,7 @@ def check_smartlock_battery(
                     f"issues[] has {n} low-battery entr{'y' if n == 1 else 'ies'}"
                 )
 
-        if not tripwires:
+        if not tripwires and not (_pct is not None and _pct < config.battery_low_band_pct):
             continue
 
         lock_id = lock.get("id") or ""
@@ -161,19 +163,35 @@ def check_smartlock_battery(
         if _threshold is not None:
             _extra["threshold"] = _threshold
 
-        findings.append(Finding(
-            check="smartlock_battery",
-            severity=Severity.CRITICAL,
-            property_uuid=prop_uuid,
-            property_name=pname,
-            title=f"Smartlock battery critical — {lock_name}",
-            detail=(
-                f"lock={lock_name} id={lock_id[:8]} "
-                f"{batt_context} {online_str} | "
-                f"tripwire: {'; '.join(tripwires)}"
-            ),
-            entity_id=lock_id,
-            extra=_extra,
-        ))
+        if tripwires:
+            findings.append(Finding(
+                check="smartlock_battery",
+                severity=Severity.CRITICAL,
+                property_uuid=prop_uuid,
+                property_name=pname,
+                title=f"Smartlock battery critical — {lock_name}",
+                detail=(
+                    f"lock={lock_name} id={lock_id[:8]} "
+                    f"{batt_context} {online_str} | "
+                    f"tripwire: {'; '.join(tripwires)}"
+                ),
+                entity_id=lock_id,
+                extra=_extra,
+            ))
+        else:
+            findings.append(Finding(
+                check="smartlock_battery",
+                severity=Severity.MEDIUM,
+                property_uuid=prop_uuid,
+                property_name=pname,
+                title=f"Smartlock battery low — {lock_name}",
+                detail=(
+                    f"lock={lock_name} id={lock_id[:8]} "
+                    f"{batt_context} {online_str} | "
+                    f"battery {_pct:.0f}% below low-band {config.battery_low_band_pct:.0f}%"
+                ),
+                entity_id=lock_id,
+                extra=_extra,
+            ))
 
     return findings
