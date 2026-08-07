@@ -137,3 +137,23 @@ committed) has:
 This file is local-only (path above) and lives outside git per repo convention (`.gitignore`
 excludes `logs/` — consistent with how the existing prototype probes already avoid committing raw
 guest data).
+
+## Addendum (2026-08-06) — sample extended to all 160 for Q1
+
+Q1 needed a bigger sample than this doc's 20 to produce a trustworthy corpus count. Rather than
+sample a larger subset and extrapolate, Q1 fetched message threads for **all 160** reservations —
+the population here is small enough that the exact count costs about the same to get as a partial
+sample would. It reused this doc's 20 already-fetched threads unmodified (no re-fetch) and pulled
+the remaining 140 via the same `hdata.get_reservation_messages()` path validated above.
+
+**This doc and `logs/session0_q2_cache.json` are unchanged and still accurate** for what they
+describe (the 20-reservation run, its metrics, its pagination test). The full 160-reservation
+results live in a **separate, new file**: `logs/session0_q1_cache.json` (see `docs/phase3/session0_q1.md`).
+If you're looking for corpus-wide numbers (total messages, token estimate, retrieval decision),
+that's the current file — this one only covers the original 20-sample probe.
+
+One correction to this doc's own prediction: the "Bulk pull works but is slow" row above expected
+the 429 rate to scale up with more calls ("should expect to hit this more than twice"). The
+140-call follow-up run actually hit **zero** 429s — so throttling reads as intermittent rather than
+reliably proportional to burst size, not a fixed cost that scales linearly. See
+`docs/phase3/session0_q1.md` for the exact numbers.
