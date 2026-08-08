@@ -27,6 +27,10 @@ response.json
 *.txt
 !requirements.txt
 
+# Local message-history store (Phase 3 Step 1) -- contains raw guest text
+data/
+*.db
+
 # macOS
 .DS_Store
 

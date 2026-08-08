@@ -94,12 +94,18 @@ def get_reservations(
     start: datetime.date,
     end: datetime.date,
     includes: str = RESERVATION_INCLUDES,
+    last_message_at: str | None = None,
 ) -> list[dict]:
     """
     All reservations for the given properties within a check-in date window.
 
     properties[] is REQUIRED by the API — omitting it returns nothing.
     The date window must be explicit; the API default (next 2 weeks) is too narrow.
+
+    last_message_at: optional ISO8601 datetime string. When set, restricts
+    results to reservations whose last message is after this timestamp —
+    used by the incremental ingestion path (hospitable/ingest.py) to find
+    only entities with new activity since the last run.
 
     Each record adds:
     - uuid   (str)       — normalized from 'id'
@@ -112,6 +118,8 @@ def get_reservations(
         ("date_query", "checkin"),
         ("per_page", "50"),
     ]
+    if last_message_at:
+        params.append(("last_message_at", last_message_at))
     items = client.get_pages("/reservations", params=params)
     return [
         {
@@ -152,17 +160,23 @@ def get_reservation_messages(
 def get_inquiries(
     client: HospitableClient,
     property_uuids: list[str],
+    last_message_at: str | None = None,
 ) -> list[dict]:
     """
     All inquiries for the given properties (summary level — no messages).
 
     properties[] is REQUIRED. Use get_inquiry_thread() to load the message
     thread for a specific inquiry.
+
+    last_message_at: optional ISO8601 datetime string, same semantics as
+    get_reservations()'s — used by the incremental ingestion path.
     """
     params = _qs("properties[]", property_uuids) + [
         ("include", "financials,guest,properties,listings"),
         ("per_page", "50"),
     ]
+    if last_message_at:
+        params.append(("last_message_at", last_message_at))
     items = client.get_pages("/inquiries", params=params)
     return [
         {
