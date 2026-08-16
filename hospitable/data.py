@@ -37,6 +37,25 @@ def _uuid(obj: dict) -> str:
     return str(obj.get("id") or obj.get("uuid") or "")
 
 
+def _format_last_message_at(value: str) -> str:
+    """
+    Normalize a last_message_at watermark to the format the API actually
+    accepts: 'YYYY-MM-DD HH:MM:SS', UTC, no offset, no fractional seconds.
+
+    Confirmed against openapi_hospitable_api_documentation.json's /reservations
+    last_message_at parameter (pattern '\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}',
+    example '2024-01-01 12:00:00') -- discovered live: the ingestion watermark
+    is stored as Python's datetime.isoformat() (e.g.
+    '2026-08-08T03:32:45.633362+00:00'), which the API rejects with a 400.
+    /inquiries documents no explicit pattern but errors the same way, so the
+    same normalization is applied to both.
+    """
+    dt = datetime.datetime.fromisoformat(value)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def res_status(res: dict) -> str | None:
     """
     Extract the canonical reservation status.
@@ -119,7 +138,7 @@ def get_reservations(
         ("per_page", "50"),
     ]
     if last_message_at:
-        params.append(("last_message_at", last_message_at))
+        params.append(("last_message_at", _format_last_message_at(last_message_at)))
     items = client.get_pages("/reservations", params=params)
     return [
         {
@@ -176,7 +195,7 @@ def get_inquiries(
         ("per_page", "50"),
     ]
     if last_message_at:
-        params.append(("last_message_at", last_message_at))
+        params.append(("last_message_at", _format_last_message_at(last_message_at)))
     items = client.get_pages("/inquiries", params=params)
     return [
         {

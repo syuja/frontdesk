@@ -63,6 +63,15 @@ def backfill_inquiries(
     store. Resumable: entities already `success`/`empty` in ingest_state are
     skipped without a network call; `error` entities are retried.
 
+    That skip only applies to an UNFILTERED (last_message_at=None) call. When
+    last_message_at is set, the API has already narrowed `inquiries` down to
+    just the entities with new activity since that timestamp -- skipping them
+    again here because they were `success` from an earlier run would mean an
+    incremental run never picks up new messages on an already-known thread,
+    only brand-new inquiries. So every entity the filtered call returns is
+    re-fetched regardless of prior status; only entities the filter excluded
+    are skipped.
+
     Deliberately does NOT filter out closed/declined/expired inquiries the
     way checks/unanswered_inquiry.py does -- that check skips them because
     they're not actionable for a NEW reply, but this corpus still wants their
@@ -108,7 +117,7 @@ def backfill_inquiries(
         if not inq_uuid:
             continue
 
-        if inq_uuid in already_done:
+        if last_message_at is None and inq_uuid in already_done:
             summary["skipped"] += 1
             continue
 
@@ -191,6 +200,11 @@ def backfill_reservations(
     local store. Same resumable shape as backfill_inquiries(): entities
     already `success`/`empty` are skipped; `error` entities are retried.
 
+    Same caveat as backfill_inquiries(): the already-done skip only applies
+    to an UNFILTERED (last_message_at=None) call -- when last_message_at is
+    set, every entity the filtered call returns is re-fetched regardless of
+    prior status, since the filter itself is what "has new activity" means.
+
     Includes every reservation status (accepted, cancelled, not accepted,
     etc.) -- same call Session 0's Q1/Q2 probes made: this is about
     corpus/thread reachability, not booking validity, and cancelled threads
@@ -241,7 +255,7 @@ def backfill_reservations(
         if not res_uuid:
             continue
 
-        if res_uuid in already_done:
+        if last_message_at is None and res_uuid in already_done:
             summary["skipped"] += 1
             continue
 

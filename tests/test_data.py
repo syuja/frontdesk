@@ -30,6 +30,9 @@ def test_get_reservations_omits_last_message_at_when_not_set():
 
 
 def test_get_reservations_includes_last_message_at_when_set():
+    """The API only accepts 'YYYY-MM-DD HH:MM:SS' (confirmed live: an ISO8601
+    string with a 'T'/offset/microseconds gets a 400) -- get_reservations must
+    normalize whatever it's given to that shape before it hits the wire."""
     client = _client()
     with patch.object(client, "get_pages", return_value=[]) as mock_pages:
         hdata.get_reservations(
@@ -37,7 +40,21 @@ def test_get_reservations_includes_last_message_at_when_set():
             last_message_at="2026-08-01T00:00:00Z",
         )
     params = dict(mock_pages.call_args.kwargs["params"])
-    assert params["last_message_at"] == "2026-08-01T00:00:00Z"
+    assert params["last_message_at"] == "2026-08-01 00:00:00"
+
+
+def test_get_reservations_normalizes_watermark_with_microseconds_and_offset():
+    """The real watermark shape produced by ingest.py's run_incremental()
+    (datetime.now(timezone.utc).isoformat()) -- must also normalize correctly,
+    converting to UTC first if the offset isn't already +00:00."""
+    client = _client()
+    with patch.object(client, "get_pages", return_value=[]) as mock_pages:
+        hdata.get_reservations(
+            client, ["p1"], datetime.date(2026, 1, 1), datetime.date(2026, 2, 1),
+            last_message_at="2026-08-08T03:32:45.633362+00:00",
+        )
+    params = dict(mock_pages.call_args.kwargs["params"])
+    assert params["last_message_at"] == "2026-08-08 03:32:45"
 
 
 def test_get_reservations_existing_params_unaffected_by_new_kwarg():
@@ -65,4 +82,4 @@ def test_get_inquiries_includes_last_message_at_when_set():
     with patch.object(client, "get_pages", return_value=[]) as mock_pages:
         hdata.get_inquiries(client, ["p1"], last_message_at="2026-08-01T00:00:00Z")
     params = dict(mock_pages.call_args.kwargs["params"])
-    assert params["last_message_at"] == "2026-08-01T00:00:00Z"
+    assert params["last_message_at"] == "2026-08-01 00:00:00"

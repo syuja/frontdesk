@@ -1,0 +1,563 @@
+{
+  "version": "1.0",
+  "created": "2026-08-09",
+  "note": "Labeled from candidates.txt only (grouped-by-keyword excerpt of the corpus), before any retrieval code exists. 'complete' means the expected answer set is verified correct/complete -- not merely that the source thread was fully visible in candidates.txt. A truncated thread only justifies complete:false when the query is broad enough that unseen messages could plausibly also answer it (e.g. topic-level queries, multi-turn arc summaries, or narrow queries in threads independently known to contain related follow-up content). Narrow, single-hit queries in truncated threads are complete:true unless there is a specific reason to doubt the answer set. Re-verify against hospitable.db before treating precision/recall numbers as final.",
+  "queries": [
+    {
+      "id": "q01",
+      "type": "lexical",
+      "query": "Is there parking at the property?",
+      "note": "Query shares 'parking' verbatim with the source thread. Easy keyword-overlap case; BM25 should nail this. Verified against the full 30-message thread in hospitable.db (2026-08-09): found additional parking-adjacent content later in the thread (a guest permit zone-number mixup, ids ~495-508) but judged it out of scope for this general availability question -- it presupposes parking access is already granted and concerns a narrower administrative detail, not 'is there parking.' Not added.",
+      "expected": [
+        {
+          "message_id": 519,
+          "entity": "reservation:07fae9b7"
+        },
+        {
+          "message_id": 517,
+          "entity": "reservation:07fae9b7"
+        },
+        {
+          "message_id": 514,
+          "entity": "reservation:07fae9b7"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q02",
+      "type": "lexical",
+      "query": "Guest is asking about wifi not working",
+      "note": "'Wifi' appears verbatim in both query and message. Straightforward lexical match.",
+      "expected": [
+        {
+          "message_id": 769,
+          "entity": "reservation:6d2e6740"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q03",
+      "type": "lexical",
+      "query": "Guest requesting early check-in",
+      "note": "Human review pass, 2026-08-12: split from the original q03, which conflated 'early check-in' and 'early luggage drop-off' -- different guest asks that happen to share the word 'early' and often appear in the same message as a fallback offer. This entry keeps only messages whose primary ask is an earlier check-in TIME. Re-derived from the DB, not just filtered from the old list by eye: re-read every one of the original 11 messages plus fresh corpus search. 757 (c6830bf8) is a genuine judgment call: 'possible to request an early check-in at 12:00 PM? If the room isn't ready by then, I am also happy to just drop off my luggage if that's easier' -- both intents appear in one message, but check-in is the lead/primary ask and luggage is an offered fallback, so it stays here (not in the luggage sibling entry). Its thread has a second, later message (754, 'I will drop off my luggage and go to the conference') that is the cleaner, unambiguous statement of the luggage side of this same negotiation -- that one went to the luggage entry instead, so the two entries draw on different messages from the same thread rather than double-counting one message. 897 (eb5dad8d) is the standardized check-in-time template request, sent 3 minutes after 898's free-text luggage-drop-off ask in the same thread -- read the raw thread to confirm these are two distinct asks from the same guest, not one ask mislabeled twice; 897 (this template) stays here, 898 went to the luggage sibling entry.",
+      "expected": [
+        {
+          "message_id": 35,
+          "entity": "reservation:1fa28c7b"
+        },
+        {
+          "message_id": 434,
+          "entity": "reservation:fae82a20"
+        },
+        {
+          "message_id": 522,
+          "entity": "reservation:07fae9b7"
+        },
+        {
+          "message_id": 560,
+          "entity": "reservation:c4749569"
+        },
+        {
+          "message_id": 664,
+          "entity": "reservation:e2494485"
+        },
+        {
+          "message_id": 91,
+          "entity": "inquiry:ab600c9c"
+        },
+        {
+          "message_id": 757,
+          "entity": "reservation:c6830bf8"
+        },
+        {
+          "message_id": 897,
+          "entity": "reservation:eb5dad8d"
+        },
+        {
+          "message_id": 789,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 2,
+          "entity": "inquiry:eb6e254f"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q04",
+      "type": "lexical",
+      "query": "Guest requesting to drop off luggage before check-in",
+      "note": "Human review pass, 2026-08-12: the other half of the q03 split (see the early check-in sibling entry for the shared background). Corpus-wide search for luggage/bags/suitcase/drop-off phrasing, then read each hit's surrounding thread to keep only genuine PRE-check-in drop-off asks and exclude a large false-positive category: POST-checkout luggage storage (leaving bags after checking out, before a later flight/pickup -- a different intent, e.g. ids 158/191/453/454/447/448, 611, 672, 1180, all excluded on this basis). Also excluded: 252 ('garbage bags', not luggage), 782 (6d2e6740 -- about wanting a room key so a suitcase full of papers can be locked up, not about drop-off timing), and 32/33 (1fa28c7b -- 32 is post-arrival where-to-put-the-bags logistics after drop-off was already granted, not a request; 33 is the guest accepting the host's offer as genuinely EITHER-luggage-or-ready-room-is-fine, not a clean statement of luggage intent the way 754 or 934/933 are). 44 (eeb0a484) uses unusual phrasing ('can I pack my luggage earlier?') but the host's reply ('Yes, you may drop off your luggage early') confirms the guest meant drop-off, not packing -- kept, with that reasoning documented since the wording alone is ambiguous. 754 (c6830bf8) and 898 (eb5dad8d) are the same threads used for the check-in sibling entry (757, 897 respectively) -- different messages from the same conversations, one per intent, not double-counted. 934/933 (378d459c) are two independent asks 6 minutes apart via two different channels (guest worried the first wasn't visible) -- same reasoning as prior passes' treatment of duplicate-channel restatements (q07, q12); both kept. This same thread (378d459c) also anchors the multi_turn 'early luggage drop-off arrangement' entry -- that entry tests summarizing the full negotiation arc (including the host's replies), this one tests single-message lexical retrieval of the guest's ask alone; using the same real messages for both is intentional, not an error.",
+      "expected": [
+        {
+          "message_id": 44,
+          "entity": "reservation:eeb0a484"
+        },
+        {
+          "message_id": 754,
+          "entity": "reservation:c6830bf8"
+        },
+        {
+          "message_id": 898,
+          "entity": "reservation:eb5dad8d"
+        },
+        {
+          "message_id": 934,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 933,
+          "entity": "reservation:378d459c"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q05",
+      "type": "lexical",
+      "query": "Guest asking for a late checkout",
+      "note": "'Late checkout' is near-verbatim in the message. Control case paired with q03 (early check-in) to test the retriever doesn't conflate the two directions. Human review pass, 2026-08-13: corpus-wide search across all guest messages for checkout/check-out/check out phrasing found two more genuine late-checkout requests, each from a different guest/thread, added per the same duplicate-restatement/independent-instance discipline used elsewhere in this file: 985 (e7bdf424, 'I was wondering if check out can be for later ?... would 12pm check out would be okay?') and 1295 (cfcb2b15, same thread as the linens-shortage entry -- 'I wanted to ask you about today's checkout... Would it be possible for us to push that back to 11:30 or noon?'). Reusing the cfcb2b15 thread for two entries is intentional, not duplication -- same convention as 378d459c reused across the luggage entries. Excluded as a different intent: 598 (74beb114) asks to check out EARLIER than the stated time, the opposite direction from a late-checkout request; 947/1028/1291 ask for an invoice at checkout, not a time extension; 886 (eb5dad8d) asks for a taxi timed to checkout, not a later checkout; 1221 (fdbe574b) asks where to dispose of garbage while checking out; 1161 (19e900e3) asks what the checkout procedure is, not for it to be later; 1314 (1e0a29f5) simply states a planned checkout time, not a request for a later one.",
+      "expected": [
+        {
+          "message_id": 532,
+          "entity": "reservation:fc65fe47"
+        },
+        {
+          "message_id": 985,
+          "entity": "reservation:e7bdf424"
+        },
+        {
+          "message_id": 1295,
+          "entity": "reservation:cfcb2b15"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q06",
+      "type": "lexical",
+      "query": "Guest asking for an extra towel",
+      "note": "'Towel' is literal keyword overlap. Simple amenity request, easy case.",
+      "expected": [
+        {
+          "message_id": 557,
+          "entity": "reservation:c4749569"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q07",
+      "type": "lexical",
+      "query": "Guest reports missing or insufficient linens in the unit",
+      "note": "New entry, 2026-08-12, added per explicit direction (general linens shortage, distinct from q05's towel-specific request). Anchor confirmed live in hospitable.db: reservation:cfcb2b15, guest Mike (matches the 'Mike Nichols, around July 3' description -- stay dates 2026-07-03/04, host addresses him as 'Mike' throughout the thread; last name isn't in message text itself but the first name and dates line up exactly). Message 1301: 'Two of the three in our party will be sleeping in the beds, and the third will be taking the couch. But we could not find any spare linens in the unit.' -- near-verbatim match to the description given. 1300, sent 2 minutes later: 'Except for the spare linens, I think we are in good shape' -- an independent restatement of the same shortage, same pattern as other duplicate-restatement inclusions elsewhere in this file (q07, q12). Host resolves it in 1299/1297 (brings spare linens, towels, blankets to the entrance) -- not included, this is a guest-ask-only lexical entry per the file's established convention. Corpus-wide search for linen/linens/sheets/bedding/blanket found no other genuine shortage reports: blanket-only requests (554, 634, 1235, 1228, 1427) are a narrower, different intent (wanting an extra blanket for warmth, not 'no linens were provided at all') and were excluded on that basis; 160 is a guest's own checkout note returning linens, not a shortage; 685 is a stain apology, not a shortage; 104 is an unrelated cleaning-service sales pitch.",
+      "expected": [
+        {
+          "message_id": 1301,
+          "entity": "reservation:cfcb2b15"
+        },
+        {
+          "message_id": 1300,
+          "entity": "reservation:cfcb2b15"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q08",
+      "type": "paraphrase",
+      "query": "Guest is asking for a student discount",
+      "note": "New entry, 2026-08-13, added per explicit direction to cover discount/coupon/special-rate requests. Corpus-wide search across all guest messages for discount/coupon/special rate/cheaper/reduced price/best price phrasing (checked both guest and host senders, to rule out the request only surviving in a host-authored quote) found exactly one genuine discount ask in the whole corpus: 1219 (reservation:21cf0871, same thread as the door-code-wrong and listing-photos entries elsewhere in this file -- reusing this thread for a third entry is intentional, same convention as 378d459c and cfcb2b15 elsewhere), 'PLEASE GIVE US A STUDENT DISCOUNT, we are on a very very tight budget.' The request also named a second recalled instance -- a guest traveling from Australia asking for a discount -- but this was checked and does not exist as described: the only Australia-related messages in the corpus (145/inquiry:9bcd0c94 and 284/reservation:f0983e1e, identical text sent to both an inquiry and its linked reservation) read in full as 'Hi Samir, we are visiting Washing DC part of our US trip from Australia :)' with no discount language anywhere in either thread, and the host declined the booking for unrelated availability reasons. Also checked 199 (reservation:e693fe1e, a self-described PhD student) -- mentions being a student but never asks for a discount anywhere in that thread either. Per the explicit 'don't force it' instruction, only the one confirmed instance is included rather than padding the set with these near-misses. Business-practice context (does not affect what belongs in expected, documented for reference only): current practice is not to give refunds, discounts, or coupons -- the guest's ask is the retrieval target regardless of how or whether it was resolved. Human review pass, 2026-08-15: added a second, real instance -- 1458 (inquiry:8330b4bc, Josh, a pre-booking inquiry, not a confirmed reservation): 'I just wanted to ask whether you might have any flexibility on the price for the five-night stay or be able to offer a small discount?' Re-verified both 1219 and 1458 fresh against hospitable.db at time of write. TYPE DECISION: reclassified lexical -> paraphrase. 1219 is near-verbatim ('STUDENT DISCOUNT'); 1458 shares the bare word 'discount' but leads with much softer, indirect phrasing ('flexibility on the price') and never mentions being a student at all -- a genuinely different phrasing of the same underlying ask, not just a quieter version of the same one. 'Lexical' in this file has meant the WHOLE expected set shares near-verbatim wording with the query, not just one member of it; once the set contains a message that only shares a single word and leads with different phrasing, paraphrase is the more accurate label. Same precedent as the stay-extension entry, which was classified paraphrase rather than lexical for an analogous reason (a mixed-directness expected set, not a uniformly literal one). MERGE-VS-SPLIT DECISION: merged into this entry rather than creating a separate inquiry-stage entry. The underlying guest intent (wanting a lower price) is the same regardless of whether the guest has already booked -- booking stage is a data-source distinction (which API entity type the message happens to live in), not a different intent, and this file already mixes inquiry and reservation entities freely within a single entry when the intent is the same (see the early-check-in entry, which includes both inquiry:ab600c9c/inquiry:eb6e254f and multiple reservation entities in one expected set). A retrieval system asked about discount requests should surface pre-booking asks too, not just post-booking ones, so keeping them together is the more useful test, not just the more convenient one.",
+      "expected": [
+        {
+          "message_id": 1219,
+          "entity": "reservation:21cf0871"
+        },
+        {
+          "message_id": 1458,
+          "entity": "inquiry:8330b4bc"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q09",
+      "type": "paraphrase",
+      "query": "Guest reports their bedroom door opened on its own overnight",
+      "note": "Query uses 'locked out'; actual messages say 'We locked our door...woke up to this' and 'The door is still locked too? This is not okay.' No shared vocabulary with a canonical 'lockout' phrasing — tests whether semantic search can connect the guest's own wording to the concept. Human review pass, 2026-08-12: broadened corpus-wide search (locked out, code, can't get in, door, open the door, won't open, not able to open) across ALL guest messages, not just this thread, per an explicit re-verification request. Found one additional independent restatement within this same thread: 17 ('No one should be opening our door while we sleep... this is NOT OKAY and not safe... We were and still are freaked out'), sent 5 minutes after 20, before the host's first reply -- a live, in-the-moment escalation of the same complaint, same treatment as q07's 1213/1214. Added. 13 (the guest's later latch/breeze theory, sent after the host already replied) was re-checked and stays excluded -- it explains a possible cause, it doesn't restate the complaint, same reasoning as before. IMPORTANT FLAG (not a change made, just documenting what the broader read surfaced): re-reading the full thread, this incident is actually the guest's door coming open / unlocking itself unexpectedly overnight (a security scare), not the guest being unable to get IN to the property -- the opposite failure mode from q07/q08. 'Guest says they've been locked out' is a loose paraphrase of that, not a literal description, and this thread would arguably fit a 'guest reports a door security/latch problem' query better than a can't-get-in query. Not changing the query text or dropping message 22 -- kept exactly as instructed -- but flagging this clearly rather than silently treating the existing label as accurate. Human review pass, 2026-08-13: per explicit follow-up, the query text has been corrected to accurately reflect the incident. Previous text was 'Guest says they've been locked out' -- flagged as mislabeled in the 2026-08-12 pass but left unchanged then because that pass's instruction was specifically not to alter query text. That constraint doesn't apply here. New query: 'Guest reports their bedroom door opened on its own overnight.' Expected set re-verified against the full 9-message thread in hospitable.db: 22, 20, 17 (reservation:26fb580a) remains the correct, complete set for this specific incident -- no change to expected. Per explicit instruction, documenting here (as business/operational context, not something verified against message content) that this incident predates bedroom door locks being installed on this property and cannot recur under the current property setup -- message 22 remains a valid historical retrieval target regardless. Confirmed: this entry should not be confused with or grouped alongside the door-code / can't-get-in entries (guest can't get IN) -- this is the opposite failure mode, a door that opened/unlocked on its own while the guest was already inside and asleep. Type remains paraphrase.",
+      "expected": [
+        {
+          "message_id": 22,
+          "entity": "reservation:26fb580a"
+        },
+        {
+          "message_id": 20,
+          "entity": "reservation:26fb580a"
+        },
+        {
+          "message_id": 17,
+          "entity": "reservation:26fb580a"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q10",
+      "type": "paraphrase",
+      "query": "Guest can't get in with the door code",
+      "note": "Message is literally 'the code is not working' — shares 'code' with the query but not 'door' or 'get in'. Borderline paraphrase; included because it's a distinct entity/thread from q07 and q09, so the retriever has to distinguish three separate access-failure incidents, not just match on 'code' once and stop. Verified against the full 34-message thread in hospitable.db: found one more direct, independent statement of the same complaint -- 1213 ('but code is wrong'), sent 17 minutes before 1206 in the same real-time lockout exchange. Added. The surrounding distress messages ('what do we do???', 'Pls tell us') don't independently state the code-failure complaint on their own, so not added. Human review pass, 2026-08-12: broadened corpus-wide search across all guest messages found one more independent restatement in this same live exchange: 1214 ('we are trying to get into the house'), sent 3 seconds before 1213, i.e. even earlier in the same real-time lockout than the message already included. Added. Re-checked 1212 ('what do we do???'), 1211/1208 ('Pls tell us' / 'Please!! Thanks'), and 1215 ('Hi Samir') -- these remain excluded as distress/greeting filler with no independent restatement of the code-failure complaint, same reasoning as the prior pass.",
+      "expected": [
+        {
+          "message_id": 1214,
+          "entity": "reservation:21cf0871"
+        },
+        {
+          "message_id": 1213,
+          "entity": "reservation:21cf0871"
+        },
+        {
+          "message_id": 1206,
+          "entity": "reservation:21cf0871"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q11",
+      "type": "paraphrase",
+      "query": "Guest is having trouble getting into the house",
+      "note": "Message: 'Hi the code isn't letting me in the house.' Query avoids 'code' entirely, uses 'trouble getting into' instead of 'letting me in.' Third distinct lockout/access incident (with q07, q08) — good stress test for whether retrieval returns all three or just re-surfaces one. Human review pass, 2026-08-12: broadened corpus-wide search found one more message in this same thread: 489 ('Yes all good. Sorry. The door is a bit tricky lol. It would light up blue but then not allow me to open'), sent after the host confirmed the guest had already gotten in. This is a judgment call, documented rather than assumed: unlike purely retrospective explanations elsewhere in this file that get excluded (e.g. q06's 13), this message still concretely restates the access-failure complaint itself ('would not allow me to open'), just delivered casually and after the fact -- not a theory about cause, a restatement of the symptom. Included on that basis. 486 (a later, unrelated review-style suggestion about adding keyed locks for safety) was checked and excluded -- a suggestion, not a complaint restatement. Human review pass, 2026-08-13: re-pulled the full 9-message reservation:ace36ff1 thread from hospitable.db -- confirmed 491 and 489 remain the complete set for this specific incident; no further messages in this thread restate the complaint. Broadened the corpus-wide search beyond this thread per explicit follow-up request and found four more genuine 'code not working' / 'room locked, can't get in' incidents, each from a different guest and a different reservation thread -- i.e. four separate people, not more of this one incident: 460 (fb54dd31, Basil, 'the code doesn't work' -- resolved in under two minutes, a stale-app-session glitch on the host's side); 894 (eb5dad8d, Roy, 'the code isn't opening the front door'); 1104 + 1100 (9a983a8e, Amanda, 'The code isn't working for the door' / 'Now the unit door won't work' -- same reservation used for the thermostat entry elsewhere in this file, but a different message/incident, sent earlier in the same thread); 760 (672e8110, 'My room is locked unfortunately, how can I get in?'). Per the explicit instruction not to force-fit a different guest/thread into this entry, none of these were added here -- flagging them as candidate additional distinct incidents for a future pass instead. Also checked 1142/1138 (8026b739, Vanessa) -- these ask the host TO PROVIDE the door code (never received it), not a report that a code already given isn't working; a different intent, not counted as an instance of this pattern. Human review pass, 2026-08-15: folded in the five additional incidents this entry's 2026-08-13 note had already identified and deliberately left out as standalone entries -- re-verified each fresh against hospitable.db rather than trusting the earlier pass's descriptions: 460 (reservation:fb54dd31, Basil, 'Hi Samir, the code doesn't work' -- single statement, resolved within two minutes as a stale-app-session glitch on the host's side, no restatement to add); 894 (reservation:eb5dad8d, Roy, 'the code isn't opening the front door, could you help us?' -- single statement, guest confirms getting in shortly after, no restatement); 1104 + 1100 (reservation:9a983a8e, Amanda, 'The code isn't working for the door' / 'Now the unit door won't work', 33 seconds apart in the same live exchange -- two independent restatements of the same complaint, same duplicate-restatement pattern as q10's 1213/1214, both kept; note this reservation is also used for the thermostat entry elsewhere in this file, a different message/incident from that one, sent earlier in the same thread); 760 (reservation:672e8110, Saif, 'Hello! My room is locked unfortunately, how can I get in?' -- single statement, no restatement); 1510 (reservation:1adea566, Josephine Boakye, 'Hi. Am not able to open the main door to go in', 2026-08-09 -- the most recently-ingested message in the corpus at the time of this pass; single statement, no restatement). This entry's purpose has shifted accordingly: it now tests retrieval across SIX independent access-failure incidents from six different guests/threads (the original ace36ff1/Danicia incident plus these five), not just one -- can the retriever surface every distinct incident for a broad-pattern query, rather than confidently returning just the first match and stopping? That distinguishes this entry from the single-specific-incident entries elsewhere in this file: the linens-shortage entry (one guest, one incident) and the door-security-scare entry (one guest, one incident -- and a different failure mode entirely, a door that opened on its own overnight, not a guest failing to get in). Confirmed no overlap: none of the six entities used here (ace36ff1, fb54dd31, eb5dad8d, 9a983a8e, 672e8110, 1adea566) or message_ids (491, 489, 460, 894, 1104, 1100, 760, 1510) appear in the linens entry (cfcb2b15 / 1301, 1300) or the door-security-scare entry (26fb580a / 22, 20, 17). Also re-confirmed 1142/1138 (8026b739, Vanessa) stay excluded -- still a different intent (asking the host TO PROVIDE a code never received, not reporting that a given code doesn't work).",
+      "expected": [
+        {
+          "message_id": 491,
+          "entity": "reservation:ace36ff1"
+        },
+        {
+          "message_id": 489,
+          "entity": "reservation:ace36ff1"
+        },
+        {
+          "message_id": 460,
+          "entity": "reservation:fb54dd31"
+        },
+        {
+          "message_id": 894,
+          "entity": "reservation:eb5dad8d"
+        },
+        {
+          "message_id": 1104,
+          "entity": "reservation:9a983a8e"
+        },
+        {
+          "message_id": 1100,
+          "entity": "reservation:9a983a8e"
+        },
+        {
+          "message_id": 760,
+          "entity": "reservation:672e8110"
+        },
+        {
+          "message_id": 1510,
+          "entity": "reservation:1adea566"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q12",
+      "type": "paraphrase",
+      "query": "Guest wants to bring a friend into the room they aren't confirmed on",
+      "note": "Message: 'is it possible to add a friend to my booking? The room is a double room...' Query paraphrases 'add a friend to my booking' as 'bring a friend...not confirmed on' — no shared phrasing beyond 'room' and 'friend'. Tests semantic understanding of a booking-modification request. Verified against the full 37-message thread in hospitable.db: the guest continues pressing the same request after hitting a platform limitation -- 797 ('they ask me to contact you directly') and 796 ('not possible to them to change the number... I could send you a picture') are the guest still working the same add-a-friend ask, and directly speak to the query's 'aren't confirmed on' framing (the platform won't let them formally add the second guest). Added both. Later messages (793 naming the friend, 791 sending her the door code) are downstream logistics of an already-granted request, not the ask itself -- not added.",
+      "expected": [
+        {
+          "message_id": 799,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 797,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 796,
+          "entity": "reservation:6d2e6740"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q13",
+      "type": "paraphrase",
+      "query": "Guest confused about whether the bathroom is private or shared",
+      "note": "Message: 'I'm confused about whether or not this room has a private bathroom. The title says shared bathroom but the details say private...' Query rewords rather than quotes; moderate lexical overlap ('private', 'shared', 'bathroom') but flips the sentence structure. Weaker paraphrase than q07/q09 by design — mid-difficulty anchor.",
+      "expected": [
+        {
+          "message_id": 1076,
+          "entity": "reservation:008f97a6"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q14",
+      "type": "paraphrase",
+      "query": "Guest worried the listing photos don't match what they're seeing",
+      "note": "Message: 'we were under the impression that the shared bedroom will be on a different floor, based on the pics we saw.' Query says 'photos don't match' vs. message's 'impression...based on the pics we saw' — genuinely different phrasing for the same complaint. True paraphrase test. Verified against the full 34-message thread in hospitable.db (same thread as q07): 1195 remains the only message that specifically ties the complaint to listing photos/expectations. The rest of the thread (asking who's on their floor, discomfort, eventually leaving) is real fallout from the same incident but addresses different specific concerns, not a restatement of the photo-mismatch complaint -- not added.",
+      "expected": [
+        {
+          "message_id": 1195,
+          "entity": "reservation:21cf0871"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q15",
+      "type": "paraphrase",
+      "query": "Guest can't get the thermostat to stop heating and switch over to cooling",
+      "note": "New entry, 2026-08-10. Source thread reservation:9a983a8e, not used elsewhere in this file. Two independent guest statements of the same complaint, separated by two host attempts to help in between: 1093 ('how do I turn off the heat? It won't turn off and air won't turn on') and 1089 ('the heat wouldn't turn off and air wouldn't turn on', sent after the host explained the Nest thermostat and switched it to cooling at 72F). Query avoids 'turn off'/'turn on' entirely in favor of 'stop heating and switch over to cooling' -- moderate paraphrase distance, similar calibration to q06. Verified by reading the full thread: both messages restate the identical issue independently, not two different complaints, so both belong in expected (same reasoning as q07's two independent lockout statements). Human review pass, 2026-08-13: corpus-wide search across all guest messages for thermostat/heat/AC/temperature/cooling found one more guest describing a thermostat-related issue -- reservation:fdbe574b, messages 1237 ('Last night it was cold in my room... the thermostat... was 69 and heat was set to 68... Can you please make sure that the heat in my room is at least 70F?'), 1235 ('set the thermostat in the living to 70F heat at night'), and 1228 (asking for an extra blanket 'just in case'). This is a genuinely different framing than this entry's incident: 9a983a8e's guest couldn't get the Nest to switch from heating to cooling mode (an operational/interface failure); fdbe574b's guest could read the thermostat fine and is asking the host to raise the heat setting (a comfort/temperature-level request, resolved the same night per 1228's own follow-up). Not added here per the explicit instruction to flag rather than force a meaningfully different framing into this entry -- a candidate for its own entry in a future pass, not added in this one since a new entry wasn't explicitly requested for it.",
+      "expected": [
+        {
+          "message_id": 1093,
+          "entity": "reservation:9a983a8e"
+        },
+        {
+          "message_id": 1089,
+          "entity": "reservation:9a983a8e"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q16",
+      "type": "paraphrase",
+      "query": "Guest wants to undo a cancellation they now regret and rebook the same reservation",
+      "note": "New entry, 2026-08-10. Source thread reservation:e29e71db, not used elsewhere in this file. Message: 'I did click cancel, but I would like to use it again' and, more urgently, 'Can I use it again? Please answer it. I worry about losing the money.' Query paraphrases 'click cancel...use it again' as 'undo a cancellation...rebook' -- no shared phrasing. Verified by reading the full thread: excluded 1071 ('the amount seems incorrect') because it's a different, narrower question (refund-math accuracy, not wanting to reverse the cancellation) even though it's part of the same overall incident; excluded 1068 ('I am waiting your answer please') as pure urgency filler carrying no new information beyond 1069.",
+      "expected": [
+        {
+          "message_id": 1070,
+          "entity": "reservation:e29e71db"
+        },
+        {
+          "message_id": 1069,
+          "entity": "reservation:e29e71db"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q17",
+      "type": "paraphrase",
+      "query": "Guest asks to extend their stay by an additional night",
+      "note": "New entry, 2026-08-13, added per explicit direction to cover stay-extension requests (a genuinely longer stay, distinct from early check-in/late checkout, which are already covered elsewhere in this file). Corpus-wide search across all guest messages for extend/extension/longer stay/additional night/one more night/extra night phrasing found two genuine, independent extension requests from two different guests/threads, both declined by the host for the same reason (another guest already booked immediately after): 1257 (reservation:7127e169, Alex, English -- 'is it possible to stay an extra night and what would it cost us?') and 1385 (reservation:d08c944d, Luis, Spanish -- 'Porfavor podria extender otro dia mas?', i.e. 'Could you please extend one more day?'). Both threads were read in full; neither guest repeats the ask elsewhere in their thread, so no further restatements to add. Classified as paraphrase rather than lexical because the query doesn't share literal wording with either message, and rather than cross_lingual because only one of the two instances is non-English -- this entry deliberately mixes an English near-paraphrase with a genuinely cross-lingual instance in the same set, a slightly different difficulty shape than this file's existing single-language cross_lingual entries, which is intentional: it tests whether retrieval finds both phrasings of the same underlying intent, not just the English one.",
+      "expected": [
+        {
+          "message_id": 1257,
+          "entity": "reservation:7127e169"
+        },
+        {
+          "message_id": 1385,
+          "entity": "reservation:d08c944d"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q18",
+      "type": "paraphrase",
+      "query": "Guest reports smelling gas in the unit and raises it as a safety concern",
+      "note": "New entry, 2026-08-15, human review pass (Codex-flagged): reservation:47dff4ed has a real gas-smell incident that wasn't covered by any existing entry, and was showing up as an unlabeled false-positive top hit against q25/q26's smoke-detector true negative under embeddings. Anchor messages, both guest-authored, ~11 minutes apart in one live exchange: 311 (22:54:26, the initial, detailed report -- 'hay un fuerte olor a gas, especialmente en las gradas de la entrada' / 'there's a strong smell of gas, especially near the entrance stairs' -- sent despite not having used the kitchen, only the microwave) and 308 (23:05:47, guest's reply after the host explained it was likely cooking downstairs and offered to check ventilation -- restates that there was a gas smell and explicitly reframes why they raised it: 'mas que por el olor en si, te lo deciamos por seguridad' / 'more than for the smell itself, we were telling you for safety'). Both included per this file's duplicate-restatement discipline (same pattern as q11's Amanda pair): 308 isn't a bare acknowledgment, it independently restates the core fact (gas smell occurred) while adding the explicit safety framing that motivated splitting this from the smoke-detector entry (q26) in the first place. TYPE DECISION: source messages are in Spanish; structurally this resembles the cross_lingual entries (English query against non-English source content), but per explicit instruction for this pass it's classified paraphrase rather than expanding cross_lingual to a third entry -- flagged here as a judgment call worth revisiting, not silently resolved, since 'paraphrase' undersells that zero literal token overlap between query and source is guaranteed here by language alone, not by wording choice the way q08's or q14's paraphrase examples are. SCOPE: distinct safety topic from the smoke-detector/fire-alarm entry -- confirmed with the user that no smoke detector or fire alarm ever went off anywhere in this corpus; this gas smell is a real, separate incident (resolved: host determined it was cooking odor from downstairs, not a leak). The two entries test different things and should never be treated as duplicates or alternates of each other.",
+      "expected": [
+        {
+          "message_id": 311,
+          "entity": "reservation:47dff4ed"
+        },
+        {
+          "message_id": 308,
+          "entity": "reservation:47dff4ed"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q19",
+      "type": "multi_turn",
+      "query": "Summarize the guest substitution issue in reservation 6d2e6740 — what happened and how was it resolved?",
+      "note": "Thread has 37 messages; candidates.txt shows only the opening exchange (add-a-friend request, platform rejecting the change, guest asking Samir to intervene directly). This label is necessarily PARTIAL — candidates.txt truncates after message id~793 with '... 31 more in this thread'. Correct answer is the arc across the thread, not one message. Flag for Claude Code: pull full thread from hospitable.db before scoring this query — right now only the first ~6 messages are visible to me. Pulled the full 37-message thread from hospitable.db (2026-08-09). The guest-substitution issue is a cleanly bounded sub-arc within the longer thread: request (799) -> host approves (798) -> platform won't let the guest apply the change herself (797, 796) -> host reassures directly regardless of platform confirmation (795, 794) -> friend's name exchanged (793) -> host confirms no ID needed, same door code works for both (792) -> guest confirms she's shared the door code with her friend (791). Expected updated to the full 9-message arc. Messages before 799 (an unrelated check-in-time request) and after 791 (door code delivery, a separate early-check-in ask, a room-key discussion, and a wifi issue) are later, unrelated concerns in the same long-running thread -- not part of this specific issue, not included.",
+      "expected": [
+        {
+          "message_id": 799,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 798,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 797,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 796,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 795,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 794,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 793,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 792,
+          "entity": "reservation:6d2e6740"
+        },
+        {
+          "message_id": 791,
+          "entity": "reservation:6d2e6740"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q20",
+      "type": "multi_turn",
+      "query": "Summarize the early luggage drop-off arrangement in reservation 378d459c — what did the guest ask for and how did it play out?",
+      "note": "New entry, 2026-08-10, replacing dropped q13 (the honeymoon-guest thread, reservation:eb5dad8d -- confirmed out of scope: that thread's length came from an unusually chaotic combination of circumstances, not one topic evolving across many messages, so it wasn't representative). This pass explicitly checked reservation:4dece580, reservation:509515af, and reservation:24117b53 as other long-thread candidates -- all three have the same shape (several independent single-topic exchanges stapled together: parking, then temperature, then a package question), not a genuine second multi-turn case. reservation:378d459c is different: the entire substantive thread is ONE topic (arranging to drop off luggage before the 2PM check-in) evolving across a real back-and-forth, closely mirroring q14's bounded-arc shape. Arc: guest asks twice, 6 minutes apart, via two different channels (934 direct, then 933 through Booking.com after realizing the first might not be visible) -> host apologizes for missing the first message, approves, offers to activate the door code early (932) -> host sets the code to activate at 8:00 AM (931) -> guest confirms understanding that early entry is luggage-only (930) -> [9-day gap to actual check-in] -> guest arrives, finds the room locked, asks about a key (928) -> host clarifies where to leave luggage and confirms which room (927) -> guest confirms (926) -> host says they'll notify once unlocked (925) -> host confirms room unlocked, luggage placed inside, key left (924). Excluded three purely templated/boilerplate messages that aren't specific to this conversation: 935 (a generic booking-confirmation sent 7 weeks earlier), 929 (the standard pre-arrival check-in-instructions template, sent to every guest), and 923 (the standard post-checkout review-request template). Human review pass, 2026-08-12: this entry originally ran through the full thread (934...924), which conflated two different guest problems -- (1) the early luggage drop-off negotiation before arrival, and (2) a separate incident 9 days later on actual check-in day, when the guest arrived to find their room locked. Rescoped to intent (1) only; intent (2) is now its own entry (see the sibling 'room locked on arrival' entry). This entry's remaining arc (934-930) is a complete, self-contained negotiation on its own -- ask, apology/approval, code-timing set, guest confirms understanding -- so trimming it doesn't leave an unresolved thread. Note: 934/933 are also used in the lexical 'early luggage drop-off' entry (single-message retrieval of the ask alone); using the same real messages for both a lexical and a multi-turn test on the same thread is intentional, not duplication.",
+      "expected": [
+        {
+          "message_id": 934,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 933,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 932,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 931,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 930,
+          "entity": "reservation:378d459c"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q21",
+      "type": "multi_turn",
+      "query": "In reservation 378d459c, the guest arrived to find their room locked -- what happened and how did the host resolve it?",
+      "note": "New entry, 2026-08-12, split off from q15 (see that entry's note for the full background) -- the second, distinct problem in the same thread: 9 days after the early-luggage-drop-off arrangement was settled, the guest arrives on actual check-in day (2026-05-02) and finds their room locked. Arc: guest arrives, room locked, asks about a key (928) -> host says leave luggage in the living room for now, confirms which room (927) -> guest confirms (926) -> host says they'll notify once it's unlocked (925) -> ~4 hours later, host confirms the room is unlocked, luggage moved inside, key left (924). FLAG for the record: this was requested as covering 'locked out because another guest has the door,' but the actual thread never states why the room was locked -- no mention anywhere of another guest occupying it, a hardware fault, or a cleaning/turnover delay specifically. The one nearby mention of 'other guests will still be in the space' (932) was about the EARLIER, separate early-access-before-2PM window, not this actual-check-in-day incident, so it doesn't obviously explain this one either. Rather than force the 'another guest has the door' framing onto content that doesn't say that, this entry describes what the thread actually shows: a locked room on arrival with an unstated cause, resolved by the host over several hours. Deliberately not folded into the q06/q07/q08 access-failure group (from the same review pass) -- those three are specifically about a non-working/wrong door CODE preventing entry; this is about a room that was locked by the host's side pending some unstated readiness condition, a different failure mode, even though thematically adjacent.",
+      "expected": [
+        {
+          "message_id": 928,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 927,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 926,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 925,
+          "entity": "reservation:378d459c"
+        },
+        {
+          "message_id": 924,
+          "entity": "reservation:378d459c"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q22",
+      "type": "multi_turn",
+      "query": "What kitchen equipment or cooking supplies has this guest asked for across their stay in reservation 24117b53?",
+      "note": "New entry, 2026-08-10, angle 2 (topic-scoped, non-adjacent) rather than angle 1 (single bounded arc) -- a different capability than q14/q15: can retrieval group topically-related messages that are NOT adjacent and NOT part of one continuous exchange, scattered across a long, multi-topic thread? reservation:24117b53 is one of the three long threads this pass confirmed is NOT a genuine single-topic multi-turn case (see q15's note) -- several unrelated exchanges (internship chat, cleaning-access questions, neighborhood recs, a dishwasher malfunction, another-guest heads-up) sit between the kitchen-equipment moments used here. Found by a systematic keyword search across guest messages (pot, pan, thermometer, knife, cutting board, blender, toaster, kettle, microwave, stove, oven, fridge, dish, spice, cookware, utensil, plate, bowl, glass, mug) plus a full read of the thread. Three genuinely separate moments, guest-authored only (matching this file's convention for 'what did the guest ask' queries): 1441 (pots and pans, day 3 of the stay) -- 17 days and dozens of unrelated messages later -- 1421 (a baking sheet) and 1418 (aluminum foil, ~1 minute after 1421, same live exchange). Deliberately excluded 1429 ('trouble starting the dishwasher') -- that's a malfunction report about a kitchen appliance, a different intent than asking whether/for an item, even though it touches the same room. This exclusion is a judgment call, not a certainty; a differently-scoped version of this query could reasonably include it.",
+      "expected": [
+        {
+          "message_id": 1441,
+          "entity": "reservation:24117b53"
+        },
+        {
+          "message_id": 1421,
+          "entity": "reservation:24117b53"
+        },
+        {
+          "message_id": 1418,
+          "entity": "reservation:24117b53"
+        },
+        {
+          "message_id": 1412,
+          "entity": "reservation:24117b53"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q23",
+      "type": "cross_lingual",
+      "query": "Does the property have a hair dryer and washer/dryer?",
+      "note": "Guest message in Spanish: 'Buenos dias por favor una consulta en los servicios del hospedaje, tienen secador de cabello y lavadora de ropa?' Query is the English translation of the actual question. Tests cross-lingual semantic retrieval; BM25 (English-tokenized) should fail this outright unless the corpus/query pipeline does translation or the tokenizer somehow overlaps — worth checking which.",
+      "expected": [
+        {
+          "message_id": 321,
+          "entity": "reservation:47dff4ed"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q24",
+      "type": "cross_lingual",
+      "query": "Guest asking for a second towel because there are two of them",
+      "note": "Guest message in Czech: 'Jenom prosíme o druhý ručník, jsme dva.' Third language in the corpus (beyond English/Spanish) — good check that cross-lingual retrieval isn't just quietly keyed to Spanish. Zero shared characters with the English query, so this is the hardest cross-lingual case in the set.",
+      "expected": [
+        {
+          "message_id": 412,
+          "entity": "reservation:27478d7a"
+        }
+      ],
+      "complete": true
+    },
+    {
+      "id": "q25",
+      "type": "true_negative",
+      "query": "Has any guest asked if pets or dogs are allowed at the property?",
+      "note": "candidates.txt lists a 'pets (20 matches)' keyword group, but every sampled message under it (ids 1073, 128, 956, 1195, 1020...) is about something else — parking, floor layout, informational thanks — with no actual pet content visible. This looks like a keyword-extraction false positive (possibly matching on an unrelated word stem) rather than a real pets topic. Left as-is deliberately: if a retriever confidently returns one of those five messages for this query, that's a real failure to catch, not a labeling error to fix. Verify against the DB whether any true pet-related message exists at all before finalizing this as a hard negative.",
+      "expected": [],
+      "complete": true
+    },
+    {
+      "id": "q26",
+      "type": "true_negative",
+      "query": "Did a guest ever report a smoke detector or fire alarm going off in the unit?",
+      "note": "No smoke detector, fire, or safety-alarm content appears anywhere in candidates.txt across any of the topic groups, threads, or the random sample. Genuine true-negative: the honest answer is 'no match in this corpus.' Tests whether retrieval (especially embeddings) forces a confident-but-wrong nearest neighbor instead of correctly returning nothing above threshold. Human review pass, 2026-08-15: tightened query text (was: 'Did a guest ever report a smoke detector going off or a fire safety issue?') to remove the broad 'or a fire safety issue' clause. That phrasing was found, via the embeddings baseline, to pull in messages 311 and 308 (reservation:47dff4ed) -- a guest reporting a strong gas smell, explicitly framed 'por seguridad' (for safety) -- as false-positive top results, since a gas smell genuinely is a safety issue in the general sense even though no smoke detector or fire alarm was involved. Confirmed with the user: no smoke detector or fire alarm ever went off anywhere in this corpus -- the gas smell is a real, separate incident. It does NOT belong in this entry's scope, which is now explicitly limited to smoke-detector/fire-alarm hardware events. The gas-smell report now has its own entry (see 'guest reports smelling gas' paraphrase entry) documenting a distinct, related-but-different safety topic -- same adjacent-but-different-intent pattern as the q08/q09 split elsewhere in this file. This entry remains a genuine true negative under its tightened, hardware-specific scope: re-verified live against hospitable.db, zero smoke-detector/fire-alarm content anywhere in the corpus.",
+      "expected": [],
+      "complete": true
+    },
+    {
+      "id": "q27",
+      "type": "true_negative",
+      "query": "Has any guest ever asked if there's a pool at the property?",
+      "note": "New entry, 2026-08-10. Verified by a live, case-insensitive search across every guest message in hospitable.db for 'pool' and 'swimming' (not just absence from candidates.txt): zero matches, either word, anywhere in the corpus. A DC rowhouse obviously has no pool, but 'is there a pool' is exactly the kind of reflexive question guests ask about almost any short-term rental regardless of property type, so it's a realistic negative, not a contrived one. Same failure mode as q17/q21: does retrieval correctly return nothing, or does it confidently surface an unrelated amenity message as a false positive?",
+      "expected": [],
+      "complete": true
+    }
+  ]
+}

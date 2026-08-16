@@ -115,6 +115,60 @@ def test_backfill_inquiries_resume_skips_already_done():
     assert summary["success"] == 1
 
 
+def test_backfill_inquiries_incremental_refetches_already_done_entities_with_new_activity():
+    """The already-done skip is a full-backfill-only optimization. When
+    last_message_at is set, the API's filtered result IS the "has new
+    activity" signal -- an already-`success` entity coming back from that
+    filtered call must be re-fetched, not skipped, or an incremental run
+    would never pick up new messages on an already-known thread (only
+    brand-new entities). This was a real gap found live: reservations with
+    genuine new guest activity were silently skipped on the first
+    incremental run against the real account."""
+    conn = _conn()
+    store.set_ingest_state(conn, "inquiry", "inq-1", "success", message_count=1)
+    conn.commit()
+
+    calls = []
+
+    def get_inquiries(client, prop_uuids, last_message_at=None):
+        assert last_message_at == "2026-08-01T00:00:00Z"
+        return [{"uuid": "inq-1", "properties": {"id": "prop-1"}}]
+
+    def thread(client, uuid):
+        calls.append(uuid)
+        return {"messages": [_msg(1), _msg(2)]}  # msg 2 is new since the earlier run
+
+    with _patched(get_inquiries=get_inquiries, get_inquiry_thread=thread):
+        summary = backfill_inquiries(client=None, conn=conn, last_message_at="2026-08-01T00:00:00Z")
+
+    assert calls == ["inq-1"]  # re-fetched, not skipped
+    assert summary["skipped"] == 0
+    assert summary["success"] == 1
+    count = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
+    assert count == 2  # both messages present, no duplicates from the re-fetch
+
+
+def test_backfill_inquiries_full_run_still_skips_already_done():
+    """Unfiltered (last_message_at=None) calls keep the original
+    resume-without-refetch behavior -- only the filtered/incremental path
+    changed."""
+    conn = _conn()
+    store.set_ingest_state(conn, "inquiry", "inq-1", "success", message_count=1)
+    conn.commit()
+
+    calls = []
+
+    def thread(client, uuid):
+        calls.append(uuid)
+        return {"messages": [_msg(1)]}
+
+    with _patched(get_inquiry_thread=thread):
+        summary = backfill_inquiries(client=None, conn=conn, last_message_at=None)
+
+    assert calls == ["inq-2"]  # inq-1 still skipped, never fetched
+    assert summary["skipped"] == 1
+
+
 def test_backfill_inquiries_rerun_is_idempotent_and_does_not_refetch():
     conn = _conn()
     calls = []
@@ -409,6 +463,32 @@ def test_backfill_reservations_resume_skips_already_done():
     assert calls == ["res-2"]
     assert summary["skipped"] == 1
     assert summary["success"] == 1
+
+
+def test_backfill_reservations_incremental_refetches_already_done_entities_with_new_activity():
+    """Mirrors the inquiries version of this fix -- see that test's docstring."""
+    conn = _conn()
+    store.set_ingest_state(conn, "reservation", "res-1", "success", message_count=1)
+    conn.commit()
+
+    calls = []
+
+    def get_reservations(client, prop_uuids, start, end, last_message_at=None):
+        assert last_message_at == "2026-08-01T00:00:00Z"
+        return [{"uuid": "res-1", "status": "accepted", "properties": {"id": "prop-1"}}]
+
+    def messages(client, uuid):
+        calls.append(uuid)
+        return [_msg(1), _msg(2)]  # msg 2 is new since the earlier run
+
+    with _patched_res(get_reservations=get_reservations, get_reservation_messages=messages):
+        summary = backfill_reservations(client=None, conn=conn, last_message_at="2026-08-01T00:00:00Z")
+
+    assert calls == ["res-1"]  # re-fetched, not skipped
+    assert summary["skipped"] == 0
+    assert summary["success"] == 1
+    count = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
+    assert count == 2  # both messages present, no duplicates from the re-fetch
 
 
 def test_backfill_reservations_rerun_is_idempotent_and_does_not_refetch():
