@@ -2,7 +2,7 @@
 #    uv export --no-hashes --no-dev
 certifi==2026.6.17
     # via requests
-charset-normalizer==3.4.7
+charset-normalizer==3.5.0
     # via requests
 idna==3.18
     # via requests
