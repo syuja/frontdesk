@@ -6,7 +6,7 @@ charset-normalizer==3.4.7
     # via requests
 idna==3.18
     # via requests
-python-dotenv==1.2.2
+python-dotenv==1.2.3
     # via hospitable-concierge
 requests==2.34.2
     # via hospitable-concierge
