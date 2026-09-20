@@ -10,5 +10,5 @@ python-dotenv==1.2.2
     # via hospitable-concierge
 requests==2.34.2
     # via hospitable-concierge
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
